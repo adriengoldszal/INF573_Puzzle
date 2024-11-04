@@ -61,11 +61,49 @@ class InteractivePuzzleSolver:
         # Precompute target image features
         self.keypoints_full, self.descriptors_full = self.sift.detectAndCompute(self.target_image, None)
         
-    def start_camera(self):
-        """Initialize the camera capture."""
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            raise Exception("Could not open camera")
+    def start_camera(self, use_iriun=False):
+        """Initialize the camera capture with format debugging."""
+        try:
+            if use_iriun:
+                print("Attempting to connect to Iriun webcam...")
+                for index in [1, 2, 3]:
+                    print(f"Trying Iriun camera index {index}...")
+                    self.cap = cv2.VideoCapture(index)
+                    if self.cap.isOpened():
+                        # Set and verify camera properties
+                        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M','J','P','G'))
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1920)
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 1080)
+                        
+                        # Read and check frame properties
+                        ret, test_frame = self.cap.read()
+                        if ret:
+                            print("\nCamera properties:")
+                            print(f"Resolution: {test_frame.shape}")
+                            print(f"Format: {test_frame.dtype}")
+                            print(f"Value range: {test_frame.min()} to {test_frame.max()}")
+                            print(f"FourCC code: {int(self.cap.get(cv2.CAP_PROP_FOURCC))}")
+                            print(f"Backend: {int(self.cap.get(cv2.CAP_PROP_BACKEND))}")
+                            
+                            # Try to normalize frame format
+                            test_frame = cv2.normalize(test_frame, None, 0, 255, cv2.NORM_MINMAX)
+                            
+                            # Save these properties for later use
+                            self.frame_height = test_frame.shape[0]
+                            self.frame_width = test_frame.shape[1]
+                            return
+                            
+                raise Exception("Could not connect to Iriun webcam")
+            else:
+                print("Connecting to default webcam...")
+                self.cap = cv2.VideoCapture(0)
+                if not self.cap.isOpened():
+                    raise Exception("Could not open default webcam")
+                print("Successfully connected to default webcam")
+                
+        except Exception as e:
+            print(f"Error connecting to camera: {e}")
+            raise
     
     
     def calculate_transform(self, src_pts, dst_pts):
@@ -78,15 +116,24 @@ class InteractivePuzzleSolver:
         if piece_info is None:
             return None
             
-        self.keypoints_piece, descriptors_piece = self.sift.detectAndCompute(piece_info['image'], None)
-            
-        if descriptors_piece is None or len(descriptors_piece) < 2:
-            print("Not enough descriptors found in piece")
-            return None
-            
         try:
+            # Extract features from the piece
+            self.keypoints_piece, descriptors_piece = self.sift.detectAndCompute(piece_info['image'], None)
+            print(f"\nFound {len(self.keypoints_piece)} keypoints in piece")
+            
+            if descriptors_piece is None:
+                print("No descriptors found in piece")
+                return None
+            if len(descriptors_piece) < 2:
+                print("Not enough descriptors in piece")
+                return None
+                
+            print(f"Found {len(self.keypoints_full)} keypoints in target puzzle")
+            
+            try:
                 # Match descriptors
                 matches = self.bf.knnMatch(descriptors_piece, self.descriptors_full, k=2)
+                print(f"Found {len(matches)} initial matches")
                 
                 # Apply ratio test
                 self.good_matches = []
@@ -94,10 +141,16 @@ class InteractivePuzzleSolver:
                     if m.distance < 0.75 * n.distance:
                         self.good_matches.append(m)
                         
-                print(f"Found {len(self.good_matches)} good matches")
+                print(f"After ratio test: {len(self.good_matches)} good matches")
+                
+                # Need minimum number of matches
+                if len(self.good_matches) < 4:
+                    print("Not enough good matches to determine location")
+                    return None
                     
                 # Sort matches by distance and take top 20
                 self.good_matches = sorted(self.good_matches, key=lambda x: x.distance)[:20]
+                print(f"Top 20 matches distances: {[m.distance for m in self.good_matches[:5]]}")  # Show first 5
                 
                 # Extract location points
                 src_pts = np.float32([self.keypoints_piece[m.queryIdx].pt for m in self.good_matches]).reshape(-1, 1, 2)
@@ -107,7 +160,10 @@ class InteractivePuzzleSolver:
                 avg_dst = np.mean(dst_pts.reshape(-1, 2), axis=0)
                 print(f"Match found at position: {tuple(map(int, avg_dst))}")
                 return tuple(map(int, avg_dst))
-
+                
+            except Exception as e:
+                print(f"Error during matching: {e}")
+                return None
                 
         except Exception as e:
             print(f"Error in match_piece: {e}")
@@ -198,10 +254,10 @@ class InteractivePuzzleSolver:
         except Exception as e:
             print(f"Error in update_visualization: {e}")
     
-    def run(self):
+    def run(self, use_iriun=False):
         """Main loop for the interactive puzzle solver."""
         try:
-            self.start_camera()
+            self.start_camera(use_iriun)
             self.running = True
             last_process_time = time.time()
             current_piece_info = None
@@ -310,8 +366,17 @@ class InteractivePuzzleSolver:
 
 def main():
     try:
-        solver = InteractivePuzzleSolver("chateau.jpg")
-        solver.run()
+        # Get camera choice from command line argument
+        import argparse
+        parser = argparse.ArgumentParser(description='Interactive Puzzle Solver')
+        parser.add_argument('--iriun', action='store_true', help='Use Iriun webcam instead of default camera')
+        parser.add_argument('--puzzle', type=str, default="chateau.jpg", help='Path to puzzle image')
+        args = parser.parse_args()
+        
+        print(f"Using {'Iriun webcam' if args.iriun else 'default webcam'}")
+        solver = InteractivePuzzleSolver(args.puzzle)
+        solver.run(args.iriun)
+        
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
     except Exception as e:
@@ -320,6 +385,7 @@ def main():
         cv2.destroyAllWindows()
         for i in range(5):
             cv2.waitKey(1)
+
 
 if __name__ == "__main__":
     main()
