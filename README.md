@@ -16,3 +16,10 @@ Dans un terminal, la commande `python solver.py --iriun` ou sans l'argument si v
 
 ### Sources
 Exemples de test pour le notebook récupérés de https://github.com/Kawaboongawa/Zolver/tree/master
+
+
+### Idées
+Mettre un marqueur sur la planche de fond afin de travailler sur des images dans le plan 2D (faire l'homgraphie de base)
+Rahjouter du bruit sur les images parfaites
+Ajouter des gomettes macbeth pour calibrer les coueurs
+Combiner features et couleurs
