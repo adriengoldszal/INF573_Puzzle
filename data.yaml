@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 3
+names: ['center', 'corner', 'edge']
+
+roboflow:
+  workspace: charles-tcmn3
+  project: puzzle-pieces-detector
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/charles-tcmn3/puzzle-pieces-detector/dataset/1
