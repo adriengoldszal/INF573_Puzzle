@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageDraw
 import time
 import sys
+from scipy.spatial.distance import pdist
+from itertools import combinations
 
 class InteractivePuzzleSolver:
     def __init__(self, target_image_path=None):
@@ -14,7 +16,13 @@ class InteractivePuzzleSolver:
         self.running = False
         
         # Initialize SIFT and matcher
-        self.sift = cv2.SIFT_create()
+        self.sift = cv2.SIFT_create(
+                nfeatures=0,        # Keep unlimited features
+                nOctaveLayers=5,    # Increase from default 3
+                contrastThreshold=0.03,  # Lower to detect more features (default 0.04)
+                edgeThreshold=20,    # Increase from default 10
+                sigma=2.0           # Increase from default 1.6 for larger features
+            )
         self.bf = cv2.BFMatcher()
         
         # Define window sizes
@@ -103,32 +111,62 @@ class InteractivePuzzleSolver:
     def extract_pieces(self, frame):
         """Extract multiple puzzle pieces from the camera frame."""
         try:
-            # Convert to grayscale
-            binary = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            # Convert to grayscale and blur
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
             
-            # Apply threshold to binary image
-            _, binary = cv2.threshold(binary, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_TRIANGLE)
+            # Apply adaptive thresholding
+            binary = cv2.adaptiveThreshold(
+                blurred,
+                255,
+                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                cv2.THRESH_BINARY_INV,
+                blockSize=11,
+                C=2
+            )
             
-            # Debug: show binary image
-            cv2.imshow("Binary", binary)
+            # Small closing to connect components
+            kernel_small = np.ones((3, 3), np.uint8)
+            morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_small)
             
-            # Find connected components (puzzle pieces)
-            num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)
+            # Find and fill holes in each component
+            contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            mask = np.zeros_like(morph)
+            
+            for contour in contours:
+                # Fill each contour
+                cv2.drawContours(mask, [contour], -1, 255, -1)
+            
+            # Now mask has filled pieces without holes
+            morph = mask
+            
+            cv2.imshow("Adaptive Threshold", binary)
+            cv2.imshow("Morphological", morph)
+            
+            # Find connected components
+            num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(morph, connectivity=8)
             pieces = []
+            
+            # Adjust area thresholds for smaller pieces
+            min_area = frame.shape[0] * frame.shape[1] * 0.01  # Reduced to 1%
+            max_area = frame.shape[0] * frame.shape[1] * 0.25  # Reduced to 25%
             
             # Skip label 0 as it's background
             for i in range(1, num_labels):
                 x, y, w, h, area = stats[i]
                 
-                # Filter out very small or very large components
-                if area < 1000 or area > frame.shape[0] * frame.shape[1] * 0.5:  
+                # Filter out components that are too small or too large
+                if area < min_area or area > max_area:
                     continue
                 
                 # Get the mask for this specific piece
                 piece_mask = (labels == i).astype(np.uint8)
                 
-                # Extract the piece with some padding
-                padding = 10
+                # Dilate the mask slightly to include edges
+                piece_mask = cv2.dilate(piece_mask, kernel_small)
+                
+                # Extract the piece with dynamic padding based on piece size
+                padding = min(20, min(w, h) // 4)  # Dynamic padding
                 x_start = max(0, x - padding)
                 y_start = max(0, y - padding)
                 x_end = min(frame.shape[1], x + w + padding)
@@ -138,20 +176,28 @@ class InteractivePuzzleSolver:
                 piece_img = frame[y_start:y_end, x_start:x_end].copy()
                 piece_mask = piece_mask[y_start:y_end, x_start:x_end]
                 
+                # Ensure mask has enough content
+                if np.sum(piece_mask) < area * 0.5:  # At least 50% of original area
+                    continue
+                
                 # Create white background version for feature matching
                 white_bg = np.full_like(piece_img, 255)
                 piece_mask_3d = np.stack([piece_mask] * 3, axis=-1)
                 piece_on_white = np.where(piece_mask_3d == 1, piece_img, white_bg)
                 
                 pieces.append({
-                    'image': piece_img,  # Store original image
-                    'matching_image': piece_on_white,  # Store white background version for matching
+                    'image': piece_img,
+                    'matching_image': piece_on_white,
                     'binary_mask': piece_mask,
                     'position': (x_start, y_start),
-                    'size': (x_end - x_start, y_end - y_start)
+                    'size': (x_end - x_start, y_end - y_start),
+                    'area': area
                 })
-            
+                
             print(f"Found {len(pieces)} valid pieces")
+            if pieces:
+                print("Piece areas:", [p['area'] for p in pieces])
+                
             return pieces
             
         except Exception as e:
@@ -159,16 +205,79 @@ class InteractivePuzzleSolver:
             import traceback
             traceback.print_exc()
             return []
+            
+    def get_spatially_consistent_matches(self, good_matches, keypoints_piece, keypoints_full, piece_size, descriptors_piece, descriptors_full):
+        """
+        Find the largest subset of matches where all matched points in the full image 
+        are within a distance threshold, accounting for potential scale differences between
+        captured piece and target puzzle.
+        """
+        if len(good_matches) < 4:  # Need at least 4 matches for reliable scale estimation
+            return [], None
         
+        # Get points from both images for matched features
+        src_pts = np.float32([keypoints_piece[m.queryIdx].pt for m in good_matches])
+        dst_pts = np.float32([keypoints_full[m.trainIdx].pt for m in good_matches])
+        
+        # Estimate scale difference using the ratio of distances between points
+        def estimate_scale():
+            # Calculate pairwise distances in both images
+            src_distances = pdist(src_pts)
+            dst_distances = pdist(dst_pts)
+            
+            # Use median ratio to be robust to outliers
+            ratios = dst_distances / (src_distances + 1e-6)  # Add small epsilon to avoid division by zero
+            scale = np.median(ratios)
+            return scale
+        
+        # Get estimated scale between captured piece and target puzzle
+        scale = estimate_scale()
+        
+        # Adjust the maximum allowed distance based on the estimated scale
+        piece_height, piece_width = piece_size
+        base_max_distance = max(piece_height, piece_width)
+        max_allowed_distance = base_max_distance * scale
+        
+        # Function to check if a set of points respects the scaled distance constraint
+        def is_consistent_set(point_indices):
+            if len(point_indices) <= 1:
+                return True
+                
+            points = dst_pts[list(point_indices)]  # Convert to list for proper indexing
+            distances = pdist(points)
+            return np.all(distances < max_allowed_distance)
+        
+        # Try to find the largest consistent set
+        best_set = []
+        
+        # Start with larger subsets first
+        for size in range(len(dst_pts), 3, -1):  # Require at least 4 points for robustness
+            for subset_indices in combinations(range(len(dst_pts)), size):
+                if is_consistent_set(subset_indices):
+                    best_set = list(subset_indices)  # Convert to list
+                    # Found the largest consistent set, break both loops
+                    break
+            if best_set:  # If we found a consistent set, stop looking
+                break
+        
+        # Convert the best set of indices back to matches
+        consistent_matches = [good_matches[i] for i in best_set]
+        match_points = None
+        if best_set:
+            match_points = dst_pts[best_set]  # This is where the error was happening
+            
+        return consistent_matches, match_points
+
     def match_pieces(self, pieces):
         """Match multiple detected pieces to the target image and return best match."""
         if not pieces:
-            return None, None, None
+            return None, None, None, None
             
         best_match = None
         best_score = 0
         best_matches = None
         best_piece = None
+        best_mask = None
         self.keypoints_piece = None  # Reset class attributes
         
         for piece in pieces:
@@ -182,48 +291,61 @@ class InteractivePuzzleSolver:
                 # Match descriptors
                 matches = self.bf.knnMatch(descriptors_piece, self.descriptors_full, k=2)
                 
-                # Apply ratio test
+                if len(matches) < 4:
+                    continue
+
+                # Apply ratio test for better matches
                 good_matches = []
-                for m, n in matches:
-                    if m.distance < 0.75 * n.distance:
+                for m,n in matches:
+                    if m.distance < 0.7 * n.distance:  # Lowe's ratio test
                         good_matches.append(m)
                 
-                if len(good_matches) < 4:
-                    continue
-                    
-                # Sort matches by distance
-                good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
+                # Sort matches by distance and take top 5
+                good_matches = sorted(good_matches, key=lambda x: x.distance)[:5]
                 
-                # Extract location points
-                src_pts = np.float32([keypoints_piece[m.queryIdx].pt for m in good_matches]).reshape(-1, 1, 2)
-                dst_pts = np.float32([self.keypoints_full[m.trainIdx].pt for m in good_matches]).reshape(-1, 1, 2)
+                h_piece, w_piece = piece['matching_image'].shape[:2]
+                scale_piece = 5.0  # Make piece 2x bigger
+                piece_resized = cv2.resize(piece['matching_image'], 
+                                        (int(w_piece * scale_piece), int(h_piece * scale_piece)))
+
+                matches_img = cv2.drawMatches(piece_resized,  # Use resized piece
+                                        keypoints_piece,
+                                        self.target_image,
+                                        self.keypoints_full,
+                                        good_matches, None,
+                                        matchColor=(0, 255, 0),
+                                        singlePointColor=None,
+                                        flags=0,
+                                        matchesThickness=3)
                 
-                # Calculate match score based on number of good matches
-                score = len(good_matches)
+                # Resize for better visualization
+                h, w = matches_img.shape[:2]
+                scale = min(1.5, self.debug_window_size[1] / h)
+                matches_resized = cv2.resize(matches_img,
+                                        (int(w * scale), self.debug_window_size[1]))
                 
-                # Check spatial consistency using homography
-                H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-                if H is None:  # Skip if homography couldn't be computed
-                    continue
-                    
-                spatially_consistent_matches = np.sum(mask)
+                cv2.namedWindow(f"Matches for Piece", cv2.WINDOW_NORMAL)
+                cv2.imshow(f"Matches for Piece", matches_resized)
+                cv2.resizeWindow(f"Matches for Piece",
+                            self.debug_window_size[0],
+                            self.debug_window_size[1])
                 
-                # Update best match if this piece has better score
-                if spatially_consistent_matches > best_score:
-                    best_score = spatially_consistent_matches
-                    best_match = np.mean(dst_pts.reshape(-1, 2), axis=0)
+                print(f"Found {len(good_matches)} good matches")
+                
+                # Calculate match points for visualization
+                if len(good_matches) > 0:
+                    dst_pts = np.float32([self.keypoints_full[m.trainIdx].pt for m in good_matches])
+                    best_match = np.mean(dst_pts, axis=0)
                     best_matches = good_matches
                     best_piece = piece
-                    self.keypoints_piece = keypoints_piece  # Save keypoints for visualization
+                    best_mask = np.ones((len(good_matches), 1), dtype=np.uint8)
+                    self.keypoints_piece = keypoints_piece
                     
             except Exception as e:
                 print(f"Error matching piece: {e}")
                 continue
-                
-        if best_match is not None:
-            print(f"Best match found with {best_score} spatially consistent features")
-            
-        return best_piece, best_match, best_matches if best_match is not None else None
+        
+        return best_piece, best_match, best_matches, best_mask
     
     def draw_arrow(self, start_point, end_point, visualization, color=(0, 255, 0)):
         """Draw an arrow from the detected piece to its target location."""
@@ -259,6 +381,7 @@ class InteractivePuzzleSolver:
             current_best_piece = None
             current_match_location = None
             current_good_matches = None
+            current_mask = None
             
             while self.running:
                 ret, frame = self.cap.read()
@@ -292,7 +415,7 @@ class InteractivePuzzleSolver:
                     pieces = self.extract_pieces(frame_resized)
                     if pieces:
                         # Find best matching piece
-                        current_best_piece, current_match_location, current_good_matches = self.match_pieces(pieces)
+                        current_best_piece, current_match_location, current_good_matches, current_mask = self.match_pieces(pieces)
                         
                     last_process_time = current_time
                 
@@ -309,36 +432,40 @@ class InteractivePuzzleSolver:
                     piece_center = (x + w//2, y + h//2)
                     self.draw_arrow(piece_center, current_match_location, current_visualization, (0, 255, 0))
                     
-                    # Display confidence score
-                    cv2.putText(current_visualization,
-                            f"Match Score: {len(current_good_matches)} features",
-                            (50, self.y_offset - 30),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                    
+                    if current_good_matches is not None:
+                        cv2.putText(current_visualization,
+                                f"Spatially Consistent Matches: {len(current_good_matches)}", 
+                                (50, self.y_offset - 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                                    
                     # Show match status
                     cv2.putText(current_visualization, "Match found!",
-                            (50, self.y_offset + self.display_height + 60),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                                        (50, self.y_offset + self.display_height + 60),
+                                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
-                    # Show feature matches in debug window
-                    if hasattr(self, 'keypoints_piece') and self.keypoints_piece is not None:
-                        matches_img = cv2.drawMatches(current_best_piece['matching_image'],
-                                                self.keypoints_piece,
-                                                self.target_image,
-                                                self.keypoints_full,
-                                                current_good_matches, None,
-                                                flags=cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS)
-                        
-                        h, w = matches_img.shape[:2]
-                        scale = self.debug_window_size[1] / h
-                        matches_resized = cv2.resize(matches_img,
-                                                (int(w * scale), self.debug_window_size[1]))
-                        
-                        cv2.namedWindow("Feature Matches", cv2.WINDOW_NORMAL)
-                        cv2.imshow("Feature Matches", matches_resized)
-                        cv2.resizeWindow("Feature Matches",
-                                    self.debug_window_size[0],
-                                    self.debug_window_size[1])
+                    if current_good_matches is not None:
+                            # Show feature matches in debug window
+
+                            if hasattr(self, 'keypoints_piece') and self.keypoints_piece is not None:
+                                matches_img = cv2.drawMatches(current_best_piece['matching_image'],
+                                                        self.keypoints_piece,
+                                                        self.target_image,
+                                                        self.keypoints_full,
+                                                        current_good_matches, None,  # Use current_good_matches directly
+                                                        matchColor=(0, 255, 0),
+                                                        matchesThickness=4,
+                                                        flags=cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS)
+                                
+                                h, w = matches_img.shape[:2]
+                                scale = self.debug_window_size[1] / h
+                                matches_resized = cv2.resize(matches_img,
+                                                        (int(w * scale), self.debug_window_size[1]))
+                                
+                                cv2.namedWindow("Spatially Consistent Matches", cv2.WINDOW_NORMAL)
+                                cv2.imshow("Spatially Consistent Matches", matches_resized)
+                                cv2.resizeWindow("Spatially Consistent Matches",
+                                            self.debug_window_size[0],
+                                            self.debug_window_size[1])
                 
                 # Add labels
                 cv2.putText(current_visualization, "Camera Feed",
@@ -372,7 +499,7 @@ def main():
         import argparse
         parser = argparse.ArgumentParser(description='Interactive Puzzle Solver')
         parser.add_argument('--iriun', action='store_true', help='Use Iriun webcam instead of default camera')
-        parser.add_argument('--puzzle', type=str, default="chateau.jpg", help='Path to puzzle image')
+        parser.add_argument('--puzzle', type=str, default="yakari.jpg", help='Path to puzzle image')
         args = parser.parse_args()
         
         print(f"Using {'Iriun webcam' if args.iriun else 'default webcam'}")
