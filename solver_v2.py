@@ -125,9 +125,15 @@ class InteractivePuzzleSolver:
                 C=2
             )
             
-            # Small closing to connect components
+            # Morphological operations with smaller kernel
             kernel_small = np.ones((3, 3), np.uint8)
-            morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_small)
+            kernel_medium = np.ones((8, 8), np.uint8)
+            #kernel_large = np.ones((15, 15), np.uint8)
+            
+            # Close small holes first
+            #morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_large)
+            morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_medium)
+            morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel_small)
             
             # Find and fill holes in each component
             contours, _ = cv2.findContours(morph, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -499,7 +505,7 @@ def main():
         import argparse
         parser = argparse.ArgumentParser(description='Interactive Puzzle Solver')
         parser.add_argument('--iriun', action='store_true', help='Use Iriun webcam instead of default camera')
-        parser.add_argument('--puzzle', type=str, default="yakari.jpg", help='Path to puzzle image')
+        parser.add_argument('--puzzle', type=str, default="fete.jpg", help='Path to puzzle image')
         args = parser.parse_args()
         
         print(f"Using {'Iriun webcam' if args.iriun else 'default webcam'}")
