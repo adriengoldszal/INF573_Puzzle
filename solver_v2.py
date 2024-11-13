@@ -14,6 +14,7 @@ class InteractivePuzzleSolver:
         self.visualization = None
         self.cap = None
         self.running = False
+        self.captured_frames = []
         
         # Initialize SIFT and matcher
         self.sift = cv2.SIFT_create(
@@ -274,6 +275,17 @@ class InteractivePuzzleSolver:
             
         return consistent_matches, match_points
 
+    def save_captured_frames(self, folder_path="screenshots"):
+        """Save all captured frames to a specified folder."""
+        import os
+        if not os.path.exists(folder_path):
+            os.makedirs(folder_path)
+        
+        for i, frame in enumerate(self.captured_frames):
+            filename = os.path.join(folder_path, f"screenshot_{i}.png")
+            cv2.imwrite(filename, frame)
+            print(f"Saved {filename}")
+
     def match_pieces(self, pieces):
         """Match multiple detected pieces to the target image and return best match."""
         if not pieces:
@@ -391,6 +403,7 @@ class InteractivePuzzleSolver:
             
             while self.running:
                 ret, frame = self.cap.read()
+
                 if not ret:
                     break
                     
@@ -416,7 +429,11 @@ class InteractivePuzzleSolver:
                         (50, self.y_offset + self.display_height + 30),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 2)
                 
+                
+                
                 if current_time - last_process_time >= 7:
+                                    #Save the frame
+                    self.captured_frames.append(frame.copy())
                     # Detect pieces
                     pieces = self.extract_pieces(frame_resized)
                     if pieces:
@@ -500,6 +517,7 @@ class InteractivePuzzleSolver:
         finally:
             self.cleanup()
 
+
 def main():
     try:
         import argparse
@@ -511,6 +529,9 @@ def main():
         print(f"Using {'Iriun webcam' if args.iriun else 'default webcam'}")
         solver = InteractivePuzzleSolver(args.puzzle)
         solver.run(args.iriun)
+
+        solver.save_captured_frames()
+
         
     except KeyboardInterrupt:
         print("\nProgram terminated by user")
