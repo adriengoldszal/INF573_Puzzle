@@ -7,7 +7,7 @@ import sys
 from scipy.spatial.distance import pdist
 from itertools import combinations
 
-
+#
 url = "http://10.222.14.104:8080/video" 
 class InteractivePuzzleSolver:
     def __init__(self, target_image_path=None):
