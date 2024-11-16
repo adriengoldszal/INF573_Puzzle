@@ -5,7 +5,6 @@ import numpy as np
 import scipy
 from scipy.spatial.distance import pdist
 import time
-
 def start_camera(url):
     
     """Start the camera stream from IP Webcam."""

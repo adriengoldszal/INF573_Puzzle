@@ -26,8 +26,7 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             last_update = current_time
             
             # Extract pieces and process them
-            canvas, bbox, best_piece, warped_center = update_puzzle(frame.copy(), sift, bf, target_image, keypoints_full, descriptors_full, verbose)
-
+            canvas, bbox, best_piece = update_puzzle(frame.copy(), sift, bf, target_image, keypoints_full, descriptors_full, verbose)
             
         if bbox is not None:
            x, y, w, h = bbox
@@ -44,6 +43,7 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
         frame_resized = frame_resized[:, :width]
         canvas_resized = canvas_resized[:, :width]
         
+            
         # Calculate remaining time for next update
         remaining_time = max(0, update_interval - (current_time - last_update))
         
@@ -60,8 +60,6 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
         # Add text on the frame
         cv2.putText(frame_resized, text, (text_x, text_y), font, font_scale, color, thickness)
         
-    
-        # Concatenate the two images horizontally
         combined_view = np.hstack((frame_resized, canvas_resized))
         
         # Display the combined view
@@ -91,10 +89,7 @@ def update_puzzle(frame, sift, bf, target_image, keypoints_full, descriptors_ful
     canvas, H = calculate_transform(best_piece, best_piece_matches, best_piece_keypoints, keypoints_full, target_image, verbose)
     print(f"Calculating transform took {time.time() - transform_start:.3f} seconds")
     
-    best_piece_center = (best_piece['position'][0] + best_piece['size'][0] // 2, best_piece['position'][1] + best_piece['size'][1] // 2)
-    warped_center = cv2.perspectiveTransform(np.array([best_piece_center]).reshape(-1, 1, 2).astype(np.float32), H).squeeze()
-    
-    return canvas, bbox, best_piece, warped_center
+    return canvas, bbox, best_piece
 
 
 def find_best_piece(pieces, sift, bf, target_image, keypoints_full, descriptors_full, verbose=False):
