@@ -4,18 +4,18 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 from scipy.spatial.distance import pdist
-
-def start_camera(iriun_index):
+import time
+def start_camera(url):
     
     """Start the camera stream from IP Webcam."""
 
-    cap = cv2.VideoCapture(iriun_index)
+    cap = cv2.VideoCapture(url)
     
     if not cap.isOpened():
-        print(f"Error: Could not connect to IP Webcam at {iriun_index}")
+        print(f"Error: Could not connect to IP Webcam at {url}")
         return None
         
-    print(f"Successfully connected to camera at {iriun_index}")
+    print(f"Successfully connected to camera at {url}")
     
     return cap
 
@@ -49,7 +49,7 @@ def load_image_sift_knn(image_path):
     keypoints_full, descriptors_full = sift.detectAndCompute(target_image, None)
     return sift, bf, target_image, keypoints_full, descriptors_full
 
-def extract_pieces(frame):
+def extract_pieces(frame, verbose=False):
         """Extract multiple puzzle pieces from the camera frame."""
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -88,14 +88,15 @@ def extract_pieces(frame):
         # Now mask has filled pieces without holes
         morph = mask
         
-        plt.figure(figsize=(12, 4))
-        plt.subplot(121)
-        plt.imshow(binary, cmap='gray')
-        plt.title("Adaptive Threshold")
-        plt.subplot(122)
-        plt.imshow(morph, cmap='gray')
-        plt.title("Morphological")
-        plt.show()
+        if verbose :
+            plt.figure(figsize=(12, 4))
+            plt.subplot(121)
+            plt.imshow(binary, cmap='gray')
+            plt.title("Adaptive Threshold")
+            plt.subplot(122)
+            plt.imshow(morph, cmap='gray')
+            plt.title("Morphological")
+            plt.show()
         
         # Find connected components
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(morph, connectivity=8)
@@ -234,23 +235,32 @@ def get_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
     # Convert the best set of indices back to matches
     return [good_matches[i] for i in best_set]
 
-def calculate_matches(pieces, sift, bf, target_image, keypoints_full, descriptors_full):
-    """Calculate matches between each piece and the target image."""
-    for i, piece in enumerate(pieces):
-        # Detect keypoints and compute descriptors
-        keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
-        
-        # Match descriptors
-        matches = bf.knnMatch(descriptors, descriptors_full, k=2)
-        
-        # Apply ratio test
-        good_matches = []
-        for m, n in matches:
-            if m.distance < 0.75 * n.distance:
-                good_matches.append(m)
-                
-        good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
-        good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
+def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose=False):
+    """Calculate matches between one piece and the target image."""
+    
+    # Detect keypoints and compute descriptors
+    sift_time = time.time()
+    keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
+    print(f"Keypoint detection and description took {time.time() - sift_time:.3f} seconds")
+    
+    # Match descriptors
+    knn_matcher_time = time.time()
+    matches = bf.knnMatch(descriptors, descriptors_full, k=2)
+    print(f"KNN matching took {time.time() - knn_matcher_time:.3f} seconds")
+    
+    # Apply ratio test
+    good_matches = []
+    for m, n in matches:
+        if m.distance < 0.75 * n.distance:
+            good_matches.append(m)
+            
+    good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
+    
+    #La spatial consistency crée un bottleneck majeur
+    # good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
+    
+     
+    if verbose :
         
         # Draw matches
         match_img = cv2.drawMatches(
@@ -260,14 +270,59 @@ def calculate_matches(pieces, sift, bf, target_image, keypoints_full, descriptor
             matchesThickness=3,
             matchColor=(0, 255, 0),
         )
-        
-        # Display matches
+        # Display matches 
+        print(f"Found {len(good_matches)} good matches")
         plt.figure(figsize=(10, 5))
         plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
         plt.axis('off')
         plt.show()
     
+    return piece, good_matches, keypoints
     
+def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_image, verbose=False):
+    """Calculate homography transform and apply piece to the puzzle canvas."""
+    
+    canvas = target_image.copy()
+    # Check if we have enough matches
+    src_pts = np.float32([keypoints_piece[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([keypoints_full[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
+        
+    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            
+    if H is not None:
+        # Warp piece and its mask
+        warped_piece = cv2.warpPerspective(piece['image'], H, 
+                                        (canvas.shape[1], canvas.shape[0]))
+        warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
+                                        (canvas.shape[1], canvas.shape[0]))
+        warped_mask = (warped_mask * 255).astype(np.uint8)
+        
+        # Convert mask to 3 channels for masking colored image
+        warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
+        
+        # Create inverse mask for the canvas
+        canvas_mask = cv2.bitwise_not(warped_mask_3d)
+        
+        # Combine the existing canvas with the new piece
+        canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
+        piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
+        canvas = cv2.add(canvas_masked, piece_masked)
+        
+
+        canvas_with_frame = cv2.rectangle(canvas.copy(), 
+                                        (0, 0), 
+                                        (canvas.shape[1]-1, canvas.shape[0]-1), 
+                                        (0, 255, 0), 5)
+        
+        if verbose :
+            # Display assembled puzzle
+            plt.figure(figsize=(10, 10))
+            plt.imshow(cv2.cvtColor(canvas_with_frame, cv2.COLOR_BGR2RGB))
+            plt.title(f"Assembled Puzzle After Adding Piece")
+            plt.axis("off")
+            plt.show()
+    
+    return canvas, H
     
     
     
