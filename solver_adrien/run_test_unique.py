@@ -3,7 +3,7 @@ from fonctions_image import *
 # Variables
 url = "http://192.168.1.15:8080/video"
 puzzle_image_path = "nos_puzzles/fete.jpg"
-
+verbose = True
 
 # Chargement
 cap = start_camera(url)
@@ -13,10 +13,10 @@ frame = read_frame(cap)
 print(frame.shape)
 
 # Extraction des pièces
-pieces = extract_pieces(frame)
+pieces = extract_pieces(frame, verbose)
 show_found_pieces(pieces)
 
 for piece in pieces:
-    piece, good_matches, keypoints_piece = calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full)
-    canvas = calculate_transform(piece, good_matches, keypoints_piece, keypoints_full, target_image)
+    piece, good_matches, keypoints_piece = calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose)
+    canvas = calculate_transform(piece, good_matches, keypoints_piece, keypoints_full, target_image, verbose)
 

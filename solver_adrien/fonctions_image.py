@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy
 from scipy.spatial.distance import pdist
+import time
 
 def start_camera(url):
     
@@ -49,7 +50,7 @@ def load_image_sift_knn(image_path):
     keypoints_full, descriptors_full = sift.detectAndCompute(target_image, None)
     return sift, bf, target_image, keypoints_full, descriptors_full
 
-def extract_pieces(frame):
+def extract_pieces(frame, verbose=False):
         """Extract multiple puzzle pieces from the camera frame."""
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -88,14 +89,15 @@ def extract_pieces(frame):
         # Now mask has filled pieces without holes
         morph = mask
         
-        plt.figure(figsize=(12, 4))
-        plt.subplot(121)
-        plt.imshow(binary, cmap='gray')
-        plt.title("Adaptive Threshold")
-        plt.subplot(122)
-        plt.imshow(morph, cmap='gray')
-        plt.title("Morphological")
-        plt.show()
+        if verbose :
+            plt.figure(figsize=(12, 4))
+            plt.subplot(121)
+            plt.imshow(binary, cmap='gray')
+            plt.title("Adaptive Threshold")
+            plt.subplot(122)
+            plt.imshow(morph, cmap='gray')
+            plt.title("Morphological")
+            plt.show()
         
         # Find connected components
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(morph, connectivity=8)
@@ -234,14 +236,18 @@ def get_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
     # Convert the best set of indices back to matches
     return [good_matches[i] for i in best_set]
 
-def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full):
+def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose=False):
     """Calculate matches between one piece and the target image."""
     
     # Detect keypoints and compute descriptors
+    sift_time = time.time()
     keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
+    print(f"Keypoint detection and description took {time.time() - sift_time:.3f} seconds")
     
     # Match descriptors
+    knn_matcher_time = time.time()
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
+    print(f"KNN matching took {time.time() - knn_matcher_time:.3f} seconds")
     
     # Apply ratio test
     good_matches = []
@@ -250,26 +256,31 @@ def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors
             good_matches.append(m)
             
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
-    good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
     
-    # Draw matches
-    match_img = cv2.drawMatches(
-        piece['matching_image'], keypoints,
-        target_image, keypoints_full,
-        good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-        matchesThickness=3,
-        matchColor=(0, 255, 0),
-    )
+    #La spatial consistency crée un bottleneck majeur
+    # good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
     
-    # Display matches
-    plt.figure(figsize=(10, 5))
-    plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
-    plt.axis('off')
-    plt.show()
+     
+    if verbose :
+        
+        # Draw matches
+        match_img = cv2.drawMatches(
+            piece['matching_image'], keypoints,
+            target_image, keypoints_full,
+            good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+            matchesThickness=3,
+            matchColor=(0, 255, 0),
+        )
+        # Display matches 
+        print(f"Found {len(good_matches)} good matches")
+        plt.figure(figsize=(10, 5))
+        plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
+        plt.axis('off')
+        plt.show()
     
     return piece, good_matches, keypoints
     
-def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_image):
+def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_image, verbose=False):
     """Calculate homography transform and apply piece to the puzzle canvas."""
     
     canvas = target_image.copy()
@@ -303,13 +314,16 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
                                         (0, 0), 
                                         (canvas.shape[1]-1, canvas.shape[0]-1), 
                                         (0, 255, 0), 5)
-        plt.figure(figsize=(10, 10))
-        plt.imshow(cv2.cvtColor(canvas_with_frame, cv2.COLOR_BGR2RGB))
-        plt.title(f"Assembled Puzzle After Adding Piece")
-        plt.axis("off")
-        plt.show()
+        
+        if verbose :
+            # Display assembled puzzle
+            plt.figure(figsize=(10, 10))
+            plt.imshow(cv2.cvtColor(canvas_with_frame, cv2.COLOR_BGR2RGB))
+            plt.title(f"Assembled Puzzle After Adding Piece")
+            plt.axis("off")
+            plt.show()
     
-    return canvas
+    return canvas, H
     
     
     
