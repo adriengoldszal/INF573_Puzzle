@@ -5,17 +5,17 @@ import numpy as np
 import scipy
 from scipy.spatial.distance import pdist
 
-def start_camera(iriun_index):
+def start_camera(url):
     
     """Start the camera stream from IP Webcam."""
 
-    cap = cv2.VideoCapture(iriun_index)
+    cap = cv2.VideoCapture(url)
     
     if not cap.isOpened():
-        print(f"Error: Could not connect to IP Webcam at {iriun_index}")
+        print(f"Error: Could not connect to IP Webcam at {url}")
         return None
         
-    print(f"Successfully connected to camera at {iriun_index}")
+    print(f"Successfully connected to camera at {url}")
     
     return cap
 
@@ -234,40 +234,82 @@ def get_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
     # Convert the best set of indices back to matches
     return [good_matches[i] for i in best_set]
 
-def calculate_matches(pieces, sift, bf, target_image, keypoints_full, descriptors_full):
-    """Calculate matches between each piece and the target image."""
-    for i, piece in enumerate(pieces):
-        # Detect keypoints and compute descriptors
-        keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
+def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full):
+    """Calculate matches between one piece and the target image."""
+    
+    # Detect keypoints and compute descriptors
+    keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
+    
+    # Match descriptors
+    matches = bf.knnMatch(descriptors, descriptors_full, k=2)
+    
+    # Apply ratio test
+    good_matches = []
+    for m, n in matches:
+        if m.distance < 0.75 * n.distance:
+            good_matches.append(m)
+            
+    good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
+    good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
+    
+    # Draw matches
+    match_img = cv2.drawMatches(
+        piece['matching_image'], keypoints,
+        target_image, keypoints_full,
+        good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+        matchesThickness=3,
+        matchColor=(0, 255, 0),
+    )
+    
+    # Display matches
+    plt.figure(figsize=(10, 5))
+    plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
+    plt.axis('off')
+    plt.show()
+    
+    return piece, good_matches, keypoints
+    
+def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_image):
+    """Calculate homography transform and apply piece to the puzzle canvas."""
+    
+    canvas = target_image.copy()
+    # Check if we have enough matches
+    src_pts = np.float32([keypoints_piece[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
+    dst_pts = np.float32([keypoints_full[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
         
-        # Match descriptors
-        matches = bf.knnMatch(descriptors, descriptors_full, k=2)
+    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+            
+    if H is not None:
+        # Warp piece and its mask
+        warped_piece = cv2.warpPerspective(piece['image'], H, 
+                                        (canvas.shape[1], canvas.shape[0]))
+        warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
+                                        (canvas.shape[1], canvas.shape[0]))
+        warped_mask = (warped_mask * 255).astype(np.uint8)
         
-        # Apply ratio test
-        good_matches = []
-        for m, n in matches:
-            if m.distance < 0.75 * n.distance:
-                good_matches.append(m)
-                
-        good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
-        good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
+        # Convert mask to 3 channels for masking colored image
+        warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
         
-        # Draw matches
-        match_img = cv2.drawMatches(
-            piece['matching_image'], keypoints,
-            target_image, keypoints_full,
-            good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-            matchesThickness=3,
-            matchColor=(0, 255, 0),
-        )
+        # Create inverse mask for the canvas
+        canvas_mask = cv2.bitwise_not(warped_mask_3d)
         
-        # Display matches
-        plt.figure(figsize=(10, 5))
-        plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
-        plt.axis('off')
+        # Combine the existing canvas with the new piece
+        canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
+        piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
+        canvas = cv2.add(canvas_masked, piece_masked)
+        
+
+        canvas_with_frame = cv2.rectangle(canvas.copy(), 
+                                        (0, 0), 
+                                        (canvas.shape[1]-1, canvas.shape[0]-1), 
+                                        (0, 255, 0), 5)
+        plt.figure(figsize=(10, 10))
+        plt.imshow(cv2.cvtColor(canvas_with_frame, cv2.COLOR_BGR2RGB))
+        plt.title(f"Assembled Puzzle After Adding Piece")
+        plt.axis("off")
         plt.show()
     
-    
+    return canvas
     
     
     
