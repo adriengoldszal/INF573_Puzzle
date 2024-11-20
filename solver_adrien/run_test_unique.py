@@ -1,8 +1,8 @@
 from fonctions_image import *
 
 # Variables
-url = "http://192.168.1.15:8080/video"
-puzzle_image_path = "nos_puzzles/fete.jpg"
+url = "http://10.220.14.33:8080/video"
+puzzle_image_path = "nos_puzzles/yakari.jpg"
 verbose = True
 
 # Chargement

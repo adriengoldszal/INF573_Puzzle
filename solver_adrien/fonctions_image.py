@@ -95,7 +95,7 @@ def extract_pieces(frame, verbose=False):
             plt.title("Adaptive Threshold")
             plt.subplot(122)
             plt.imshow(morph, cmap='gray')
-            plt.title("Morphological")
+            plt.title("Morphological with filled contours")
             plt.show()
         
         # Find connected components
@@ -103,15 +103,14 @@ def extract_pieces(frame, verbose=False):
         pieces = []
         
         # Calculate minimum area threshold based on image size
-        min_area = frame.shape[0] * frame.shape[1] * 0.02  # 2% of image area
-        max_area = frame.shape[0] * frame.shape[1] * 0.5   # 50% of image area
+        min_area = frame.shape[0] * frame.shape[1] * 0.01  # 2% of image area
         
         # Skip label 0 as it's background
         for i in range(1, num_labels):
             x, y, w, h, area = stats[i]
             
             # Filter out components that are too small or too large
-            if area < min_area or area > max_area:
+            if area < min_area :
                 continue
             
             # Get the mask for this specific piece
