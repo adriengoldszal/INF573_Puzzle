@@ -103,7 +103,7 @@ def extract_pieces(frame, verbose=False):
         pieces = []
         
         # Calculate minimum area threshold based on image size
-        min_area = frame.shape[0] * frame.shape[1] * 0.01  # 2% of image area
+        min_area = frame.shape[0] * frame.shape[1] * 0.001  # 2% of image area
         
         # Skip label 0 as it's background
         for i in range(1, num_labels):
