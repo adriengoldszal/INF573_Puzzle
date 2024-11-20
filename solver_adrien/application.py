@@ -34,7 +34,7 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
             
         # Create the display frame regardless of update interval
-        height = 500
+        height = 300
         frame_resized = cv2.resize(frame, (int(height * frame.shape[1] / frame.shape[0]), height))
         canvas_resized = cv2.resize(canvas, (int(height * canvas.shape[1] / canvas.shape[0]), height))
         
