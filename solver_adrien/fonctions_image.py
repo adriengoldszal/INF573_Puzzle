@@ -31,13 +31,7 @@ def read_frame(cap):
 def get_features(img_piece):
     "Prend en argument une image de pièce de puzzle et renvoie un vecteur de caractéristiques et des keypoints"
 
-    sift=cv2.SIFT_create(
-                nfeatures=0,        # Keep unlimited features
-                nOctaveLayers=5,    # Increase from default 3
-                contrastThreshold=0.03,  # Lower to detect more features (default 0.04)
-                edgeThreshold=20,    # Increase from default 10
-                sigma=2.0           # Increase from default 1.6 for larger features
-            )
+    sift=cv2.SIFT_create()
     keypoints_full, descriptors_full = sift.detectAndCompute(img_piece, None)
     return keypoints_full, descriptors_full
 
@@ -103,7 +97,7 @@ def extract_pieces(frame, verbose=False):
         pieces = []
         
         # Calculate minimum area threshold based on image size
-        min_area = frame.shape[0] * frame.shape[1] * 0.001  # 2% of image area
+        min_area = frame.shape[0] * frame.shape[1] * 0.005 # 2% of image area
         
         # Skip label 0 as it's background
         for i in range(1, num_labels):
@@ -170,7 +164,7 @@ def show_found_pieces(pieces) :
             # White background version
             plt.subplot(rows, 4, i*2 + 2)
             plt.imshow(cv2.cvtColor(piece['matching_image'], cv2.COLOR_BGR2RGB))
-            plt.title(f"Piece {i} (White BG)")
+            plt.title(f"Piece {i} (Matching image used for SIFT)")
             plt.axis('off')
             
             # Print piece information
@@ -247,10 +241,8 @@ def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
     print(f"KNN matching took {time.time() - knn_matcher_time:.3f} seconds")
     
-    # Apply ratio test
     good_matches = []
-    for m, n in matches:
-        if m.distance < 0.75 * n.distance:
+    for m, _ in matches:
             good_matches.append(m)
             
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
