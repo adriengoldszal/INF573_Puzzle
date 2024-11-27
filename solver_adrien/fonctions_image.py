@@ -317,5 +317,52 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
     
     
     
-
+def draw_matches_enhanced(img1, kp1, img2, kp2, matches, color=(0, 255, 0)):
+    """
+    Draw matches with enhanced visibility, compatible with knnMatch output
     
+    Parameters:
+    - img1, img2: source images
+    - kp1, kp2: keypoints from both images
+    - matches: list of matches from knnMatch (takes first match from each pair)
+    - color: color of the lines (default: green)
+    """
+    # Create a new output image that concatenates the two images
+    rows1, cols1 = img1.shape[:2]
+    rows2, cols2 = img2.shape[:2]
+    out = np.zeros((max(rows1, rows2), cols1 + cols2, 3), dtype='uint8')
+    
+    # Place the first image to the left
+    out[:rows1,:cols1] = np.dstack([img1, img1, img1]) if len(img1.shape) == 2 else img1
+    # Place the second image to the right
+    out[:rows2,cols1:] = np.dstack([img2, img2, img2]) if len(img2.shape) == 2 else img2
+    
+    # For knnMatch, we'll use only the best match (first one) from each pair
+    for m in matches:
+        if len(m) < 2:  # Skip if we don't have 2 matches
+            continue
+            
+        # Get the matching keypoints for each of the images
+        img1_idx = m[0].queryIdx
+        img2_idx = m[0].trainIdx
+
+        # Get the coordinates
+        (x1, y1) = kp1[img1_idx].pt
+        (x2, y2) = kp2[img2_idx].pt
+
+        # Calculate match quality (ratio between first and second best match)
+        ratio = m[0].distance / m[1].distance
+        
+        # Color based on ratio (green for good matches, red for potentially poor ones)
+        match_color = (0, int(255 * (1 - ratio)), int(255 * ratio)) if color is None else color
+
+        # Draw the match line with increased thickness
+        cv2.line(out, (int(x1), int(y1)), 
+                (int(x2) + cols1, int(y2)), 
+                match_color, 2)
+        
+        # Draw circles around the keypoints
+        cv2.circle(out, (int(x1), int(y1)), 4, match_color, 2)
+        cv2.circle(out, (int(x2) + cols1, int(y2)), 4, match_color, 2)
+
+    return out
