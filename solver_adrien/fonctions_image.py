@@ -31,13 +31,7 @@ def read_frame(cap):
 def get_features(img_piece):
     "Prend en argument une image de pièce de puzzle et renvoie un vecteur de caractéristiques et des keypoints"
 
-    sift=cv2.SIFT_create(
-                nfeatures=0,        # Keep unlimited features
-                nOctaveLayers=5,    # Increase from default 3
-                contrastThreshold=0.03,  # Lower to detect more features (default 0.04)
-                edgeThreshold=20,    # Increase from default 10
-                sigma=2.0           # Increase from default 1.6 for larger features
-            )
+    sift=cv2.SIFT_create()
     keypoints_full, descriptors_full = sift.detectAndCompute(img_piece, None)
     return keypoints_full, descriptors_full
 
@@ -103,7 +97,7 @@ def extract_pieces(frame, verbose=False):
         pieces = []
         
         # Calculate minimum area threshold based on image size
-        min_area = frame.shape[0] * frame.shape[1] * 0.01  # 2% of image area
+        min_area = frame.shape[0] * frame.shape[1] * 0.005 # 2% of image area
         
         # Skip label 0 as it's background
         for i in range(1, num_labels):
@@ -170,7 +164,7 @@ def show_found_pieces(pieces) :
             # White background version
             plt.subplot(rows, 4, i*2 + 2)
             plt.imshow(cv2.cvtColor(piece['matching_image'], cv2.COLOR_BGR2RGB))
-            plt.title(f"Piece {i} (White BG)")
+            plt.title(f"Piece {i} (Matching image used for SIFT)")
             plt.axis('off')
             
             # Print piece information
@@ -247,10 +241,8 @@ def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
     print(f"KNN matching took {time.time() - knn_matcher_time:.3f} seconds")
     
-    # Apply ratio test
     good_matches = []
-    for m, n in matches:
-        if m.distance < 0.75 * n.distance:
+    for m, _ in matches:
             good_matches.append(m)
             
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
@@ -325,5 +317,52 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
     
     
     
-
+def draw_matches_enhanced(img1, kp1, img2, kp2, matches, color=(0, 255, 0)):
+    """
+    Draw matches with enhanced visibility, compatible with knnMatch output
     
+    Parameters:
+    - img1, img2: source images
+    - kp1, kp2: keypoints from both images
+    - matches: list of matches from knnMatch (takes first match from each pair)
+    - color: color of the lines (default: green)
+    """
+    # Create a new output image that concatenates the two images
+    rows1, cols1 = img1.shape[:2]
+    rows2, cols2 = img2.shape[:2]
+    out = np.zeros((max(rows1, rows2), cols1 + cols2, 3), dtype='uint8')
+    
+    # Place the first image to the left
+    out[:rows1,:cols1] = np.dstack([img1, img1, img1]) if len(img1.shape) == 2 else img1
+    # Place the second image to the right
+    out[:rows2,cols1:] = np.dstack([img2, img2, img2]) if len(img2.shape) == 2 else img2
+    
+    # For knnMatch, we'll use only the best match (first one) from each pair
+    for m in matches:
+        if len(m) < 2:  # Skip if we don't have 2 matches
+            continue
+            
+        # Get the matching keypoints for each of the images
+        img1_idx = m[0].queryIdx
+        img2_idx = m[0].trainIdx
+
+        # Get the coordinates
+        (x1, y1) = kp1[img1_idx].pt
+        (x2, y2) = kp2[img2_idx].pt
+
+        # Calculate match quality (ratio between first and second best match)
+        ratio = m[0].distance / m[1].distance
+        
+        # Color based on ratio (green for good matches, red for potentially poor ones)
+        match_color = (0, int(255 * (1 - ratio)), int(255 * ratio)) if color is None else color
+
+        # Draw the match line with increased thickness
+        cv2.line(out, (int(x1), int(y1)), 
+                (int(x2) + cols1, int(y2)), 
+                match_color, 2)
+        
+        # Draw circles around the keypoints
+        cv2.circle(out, (int(x1), int(y1)), 4, match_color, 2)
+        cv2.circle(out, (int(x2) + cols1, int(y2)), 4, match_color, 2)
+
+    return out
