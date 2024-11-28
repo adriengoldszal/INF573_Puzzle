@@ -225,12 +225,37 @@ def get_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
     # Convert the best set of indices back to matches
     return [good_matches[i] for i in best_set]
 
+def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=5):
+    """Reducing the mask to get rid of the edge keypoints that are just noise
+
+    """
+    height, width = mask.shape
+    kernel = np.ones((margin*2+1, margin*2+1), np.uint8)
+    eroded_mask = cv2.erode(mask.astype(np.uint8), kernel)
+    
+    filtered_keypoints = []
+    filtered_descriptors = []
+    
+    for i, kp in enumerate(keypoints):
+        x, y = map(int, kp.pt)
+        if 0 <= y < height and 0 <= x < width and eroded_mask[y, x] > 0:
+            filtered_keypoints.append(kp)
+            filtered_descriptors.append(descriptors[i])
+    
+    return filtered_keypoints, np.array(filtered_descriptors)
+
 def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose=False):
     """Calculate matches between one piece and the target image."""
     
     # Detect keypoints and compute descriptors
     sift_time = time.time()
     keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
+    
+    keypoints, descriptors = filter_keypoints_by_mask(
+    keypoints,
+    descriptors,
+    piece["binary_mask"]
+    )
     print(f"Keypoint detection and description took {time.time() - sift_time:.3f} seconds")
     
     # Match descriptors
@@ -239,15 +264,14 @@ def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors
     print(f"KNN matching took {time.time() - knn_matcher_time:.3f} seconds")
     
     good_matches = []
-    for m, _ in matches:
+    for m, n in matches:
+        if m.distance < 0.8 * n.distance:  # Lowe's ratio test
             good_matches.append(m)
-            
+    
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
-    
     #La spatial consistency crée un bottleneck majeur
-    # good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
+    good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
     
-     
     if verbose :
         
         # Draw matches
@@ -311,55 +335,3 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
             plt.show()
     
     return canvas, H
-    
-    
-    
-def draw_matches_enhanced(img1, kp1, img2, kp2, matches, color=(0, 255, 0)):
-    """
-    Draw matches with enhanced visibility, compatible with knnMatch output
-    
-    Parameters:
-    - img1, img2: source images
-    - kp1, kp2: keypoints from both images
-    - matches: list of matches from knnMatch (takes first match from each pair)
-    - color: color of the lines (default: green)
-    """
-    # Create a new output image that concatenates the two images
-    rows1, cols1 = img1.shape[:2]
-    rows2, cols2 = img2.shape[:2]
-    out = np.zeros((max(rows1, rows2), cols1 + cols2, 3), dtype='uint8')
-    
-    # Place the first image to the left
-    out[:rows1,:cols1] = np.dstack([img1, img1, img1]) if len(img1.shape) == 2 else img1
-    # Place the second image to the right
-    out[:rows2,cols1:] = np.dstack([img2, img2, img2]) if len(img2.shape) == 2 else img2
-    
-    # For knnMatch, we'll use only the best match (first one) from each pair
-    for m in matches:
-        if len(m) < 2:  # Skip if we don't have 2 matches
-            continue
-            
-        # Get the matching keypoints for each of the images
-        img1_idx = m[0].queryIdx
-        img2_idx = m[0].trainIdx
-
-        # Get the coordinates
-        (x1, y1) = kp1[img1_idx].pt
-        (x2, y2) = kp2[img2_idx].pt
-
-        # Calculate match quality (ratio between first and second best match)
-        ratio = m[0].distance / m[1].distance
-        
-        # Color based on ratio (green for good matches, red for potentially poor ones)
-        match_color = (0, int(255 * (1 - ratio)), int(255 * ratio)) if color is None else color
-
-        # Draw the match line with increased thickness
-        cv2.line(out, (int(x1), int(y1)), 
-                (int(x2) + cols1, int(y2)), 
-                match_color, 2)
-        
-        # Draw circles around the keypoints
-        cv2.circle(out, (int(x1), int(y1)), 4, match_color, 2)
-        cv2.circle(out, (int(x2) + cols1, int(y2)), 4, match_color, 2)
-
-    return out

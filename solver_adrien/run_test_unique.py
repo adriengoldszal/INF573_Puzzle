@@ -11,6 +11,7 @@ sift, bf, target_image, keypoints_full, descriptors_full = load_image_sift_knn(p
 
 frame = read_frame(cap)
 print(frame.shape)
+cv2.imwrite("frame.jpg", frame)
 
 # Extraction des pièces
 pieces = extract_pieces(frame, verbose)
@@ -18,5 +19,6 @@ show_found_pieces(pieces)
 
 for piece in pieces:
     piece, good_matches, keypoints_piece = calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose)
-    canvas = calculate_transform(piece, good_matches, keypoints_piece, keypoints_full, target_image, verbose)
+    if len(good_matches) > 4 :
+        canvas = calculate_transform(piece, good_matches, keypoints_piece, keypoints_full, target_image, verbose)
 
