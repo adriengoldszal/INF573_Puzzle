@@ -110,9 +110,6 @@ def extract_pieces(frame, verbose=False):
             # Get the mask for this specific piece
             piece_mask = (labels == i).astype(np.uint8)
             
-            # Dilate the mask slightly to include edges
-            piece_mask = cv2.dilate(piece_mask, kernel_small)
-            
             # Extract the piece with dynamic padding based on piece size
             padding = min(20, min(w, h) // 4)  # Dynamic padding
             x_start = max(0, x - padding)
