@@ -1,8 +1,8 @@
 # INF573 : Puzzle Solver
 Aide à la résolution de puzzle en direct à l'aide d'une caméra
 ## TODO 
-TODO : Ajout flèche  
-TODO : Requirements.txt pour les librairies
+TODO : Ameliorer la feature detection peut être avec de la detection de couleurs ou de la computer vision
+TODO : Ameliorer le programme lui même, mémoire des pièces, pour avancement progressif
 
 ## Installation
 
