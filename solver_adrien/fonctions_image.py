@@ -225,7 +225,7 @@ def get_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
     # Convert the best set of indices back to matches
     return [good_matches[i] for i in best_set]
 
-def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=5):
+def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
     """Reducing the mask to get rid of the edge keypoints that are just noise
 
     """
@@ -244,18 +244,19 @@ def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=5):
     
     return filtered_keypoints, np.array(filtered_descriptors)
 
-def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose=False):
+def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, filter_edges,verbose=True):
     """Calculate matches between one piece and the target image."""
     
     # Detect keypoints and compute descriptors
     sift_time = time.time()
     keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
     
-    keypoints, descriptors = filter_keypoints_by_mask(
-    keypoints,
-    descriptors,
-    piece["binary_mask"]
-    )
+    if filter_edges:
+        keypoints, descriptors = filter_keypoints_by_mask(
+        keypoints,
+        descriptors,
+        piece["binary_mask"]
+        )
     print(f"Keypoint detection and description took {time.time() - sift_time:.3f} seconds")
     
     # Match descriptors
