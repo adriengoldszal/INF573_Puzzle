@@ -2,9 +2,9 @@ import cv2 as cv2
 from skimage import io
 import matplotlib.pyplot as plt
 import numpy as np
-import scipy
-from scipy.spatial.distance import pdist
+from scipy.spatial.distance import cdist
 import time
+
 def start_camera(url):
     
     """Start the camera stream from IP Webcam."""
@@ -176,10 +176,11 @@ def show_found_pieces(pieces) :
         print("No pieces were found in the image")
 
 
-def get_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
+def get_spatially_consistent_matches_optimized(good_matches, keypoints_full, piece_size):
     """
-    Find the largest subset of matches where all matched points in the full image 
+    Find a large subset of matches where all matched points in the full image 
     are within a distance threshold based on the piece size.
+    Calculates all pairwise distances in advance to avoid factorial complexity.
     
     Args:
         good_matches: List of matches that passed the ratio test
@@ -189,41 +190,47 @@ def get_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
     Returns:
         List of matches that are spatially consistent
     """
-    
-    
     piece_height, piece_width = piece_size
-    max_allowed_distance = max(piece_height, piece_width) 
-
+    max_allowed_distance = max(piece_height, piece_width)
+    
     if len(good_matches) == 0:
         return []
-
+    
     # Get points in the full image for all matches
     dst_pts = np.float32([keypoints_full[m.trainIdx].pt for m in good_matches])
     
-    # Function to check if a set of points respects the distance constraint
-    def is_consistent_set(point_indices):
-        points = np.array([dst_pts[i] for i in point_indices])
-        if len(points) > 1:
-            distances = pdist(points)
-            return np.all(distances < max_allowed_distance)
-        return True
+    # Calculate pairwise distances between all points
+    distances = cdist(dst_pts, dst_pts)
     
-    # Try to find the largest consistent set
-    best_set = []
-    from itertools import combinations
-    # Try different sized subsets, from largest to smallest
-    for size in range(len(dst_pts), 0, -1):
-        # Check all possible combinations of this size
-        for subset_indices in combinations(range(len(dst_pts)), size):
-            if is_consistent_set(subset_indices):
-                best_set = list(subset_indices)
-                # Found the largest consistent set, break both loops
-                break
-        if best_set:  # If we found a consistent set, stop looking
+    # Initialize with the point that has the most neighbors within threshold
+    valid_neighbors = (distances < max_allowed_distance).sum(axis=1)
+    best_start = np.argmax(valid_neighbors)
+    
+    consistent_indices = {best_start}
+    candidates = set(range(len(dst_pts))) - {best_start}
+    
+    while candidates:
+        # Find the point that's consistent with all current points
+        best_score = -1
+        best_idx = None
+        
+        for idx in candidates:
+            # Check if this point is within threshold of all current points
+            if np.all(distances[idx, list(consistent_indices)] < max_allowed_distance):
+                # Score is number of additional valid neighbors it would add
+                potential_neighbors = set(np.where(distances[idx] < max_allowed_distance)[0])
+                score = len(potential_neighbors & candidates)
+                if score > best_score:
+                    best_score = score
+                    best_idx = idx
+        
+        if best_idx is None:
             break
+            
+        consistent_indices.add(best_idx)
+        candidates.remove(best_idx)
     
-    # Convert the best set of indices back to matches
-    return [good_matches[i] for i in best_set]
+    return [good_matches[i] for i in consistent_indices]
 
 def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
     """Reducing the mask to get rid of the edge keypoints that are just noise
@@ -271,7 +278,7 @@ def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors
     
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
     #La spatial consistency crée un bottleneck majeur
-    good_matches = get_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
+    good_matches = get_spatially_consistent_matches_optimized(good_matches, keypoints_full, piece['size'])
     
     if verbose :
         
@@ -291,16 +298,53 @@ def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors
         plt.show()
     
     return piece, good_matches, keypoints
+
+def homography_by_hand(src_pts, dst_pts) :
+    # Reshape points to 2D arrays
+    src = src_pts.reshape(-1, 2)
+    dst = dst_pts.reshape(-1, 2)
     
-def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_image, verbose=False):
+    # Calculate centroids
+    src_centroid = np.mean(src, axis=0)
+    dst_centroid = np.mean(dst, axis=0)
+    
+    # Center the points
+    src_centered = src - src_centroid
+    dst_centered = dst - dst_centroid
+    
+    # Calculate rotation and scale
+    # Using SVD for robust calculation
+    covariance_matrix = np.dot(src_centered.T, dst_centered)
+    U, _, Vt = np.linalg.svd(covariance_matrix)
+    rotation_matrix = np.dot(Vt.T, U.T)
+    
+    # Ensure we have a rotation (determinant should be 1)
+    if np.linalg.det(rotation_matrix) < 0:
+        Vt[-1, :] *= -1
+        rotation_matrix = np.dot(Vt.T, U.T)
+    
+    # Calculate scale
+    scale = np.sqrt(np.sum(dst_centered**2) / np.sum(src_centered**2))
+    
+    # Combine into transformation matrix
+    H = np.eye(3)
+    H[:2, :2] = scale * rotation_matrix
+    H[:2, 2] = dst_centroid - np.dot(scale * rotation_matrix, src_centroid)
+    
+    return H
+    
+def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_image, byhand, verbose=False):
     """Calculate homography transform and apply piece to the puzzle canvas."""
     
     canvas = target_image.copy()
     # Check if we have enough matches
     src_pts = np.float32([keypoints_piece[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
     dst_pts = np.float32([keypoints_full[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-        
-    H, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    
+    if byhand :
+        H = homography_by_hand(src_pts, dst_pts)
+    else :
+        H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
             
     if H is not None:
         # Warp piece and its mask
