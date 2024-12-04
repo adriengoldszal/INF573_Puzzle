@@ -251,22 +251,20 @@ def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
     
     return filtered_keypoints, np.array(filtered_descriptors)
 
-def calculate_keypoints_sift(piece, puzzle):
-    
-    sift = cv2.SIFT_create()
-    keypoints_full, descriptors_full = sift.detectAndCompute(puzzle, None)
+def calculate_keypoints_sift(sift, piece, puzzle, verbose=False):
     
     keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
 
     keypoints_filtered, descriptors_filtered = filter_keypoints_by_mask(keypoints, descriptors, piece['binary_mask'])
     
-    drawn_keypoints = cv2.drawKeypoints(piece["matching_image"], keypoints_filtered, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    plt.imshow(drawn_keypoints)
-    plt.show()
+    if verbose :
+        drawn_keypoints = cv2.drawKeypoints(piece["matching_image"], keypoints_filtered, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        plt.imshow(drawn_keypoints)
+        plt.show()
     
-    return keypoints_filtered, descriptors_filtered, keypoints_full, descriptors_full
+    return keypoints_filtered, descriptors_filtered
 
-def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full):
+def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, verbose=False):
     bf = cv2.BFMatcher()
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
 
@@ -282,19 +280,20 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
     print("Matches and their distances:")
     for idx, match in enumerate(good_matches):
         print(f"Match {idx + 1}: Distance = {match.distance:.2f}")
-        
-    # Draw matches
-    match_img = cv2.drawMatches(
-        piece['matching_image'], keypoints,
-        puzzle, keypoints_full,
-        good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-        matchesThickness=3,
-        matchColor=(0, 255, 0),
-    )
-    # Display matches 
-    print(f"Found {len(good_matches)} good matches")
-    plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
-    plt.show()
+    
+    if verbose :
+        # Draw matches
+        match_img = cv2.drawMatches(
+            piece['matching_image'], keypoints,
+            puzzle, keypoints_full,
+            good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+            matchesThickness=3,
+            matchColor=(0, 255, 0),
+        )
+        # Display matches 
+        print(f"Found {len(good_matches)} good matches")
+        plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
+        plt.show()
     
     return good_matches
 
