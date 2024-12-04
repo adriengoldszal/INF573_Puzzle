@@ -26,41 +26,16 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             last_update = current_time
             
             # Extract pieces and process them
-            canvas, bbox, best_piece = update_puzzle(frame.copy(), sift, bf, target_image, keypoints_full, descriptors_full, verbose)
-            
+            H, bbox, best_piece = update_puzzle(frame.copy(), sift, bf, target_image, keypoints_full, descriptors_full, verbose)
+        
+        canvas = update_canvas(H, canvas, best_piece)
+        
         if bbox is not None:
            x, y, w, h = bbox
            # Draw the rectangle on the frame
            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
             
-        # Create the display frame regardless of update interval
-        height = 300
-        frame_resized = cv2.resize(frame, (int(height * frame.shape[1] / frame.shape[0]), height))
-        canvas_resized = cv2.resize(canvas, (int(height * canvas.shape[1] / canvas.shape[0]), height))
-        
-        # Adjust widths if necessary to make them match exactly
-        width = min(frame_resized.shape[1], canvas_resized.shape[1])
-        frame_resized = frame_resized[:, :width]
-        canvas_resized = canvas_resized[:, :width]
-        
-            
-        # Calculate remaining time for next update
-        remaining_time = max(0, update_interval - (current_time - last_update))
-        
-        # Display the "next match in X secs..." text
-        text = f"Next match in {remaining_time:.1f} secs..."
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.7
-        color = (0, 255, 0)  # Green color for the text
-        thickness = 2
-        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
-        text_x = frame_resized.shape[1] - text_size[0] - 10  # Right-aligned
-        text_y = 30  # Position from the top
-        
-        # Add text on the frame
-        cv2.putText(frame_resized, text, (text_x, text_y), font, font_scale, color, thickness)
-        
-        combined_view = np.hstack((frame_resized, canvas_resized))
+        combined_view = create_fullscreen_display(frame, canvas, update_interval, last_update)
         
         # Display the combined view
         cv2.imshow("Real-time Puzzle Assembly", combined_view)
@@ -74,7 +49,6 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
     cv2.destroyAllWindows()
 
 
-
 def update_puzzle(frame, sift, bf, target_image, keypoints_full, descriptors_full, verbose):
     
     extract_start = time.time()
@@ -86,10 +60,10 @@ def update_puzzle(frame, sift, bf, target_image, keypoints_full, descriptors_ful
     print(f"Finding best piece took {time.time() - find_best_piece_start:.3f} seconds")
     
     transform_start = time.time()
-    canvas, H = calculate_transform(best_piece, best_piece_matches, best_piece_keypoints, keypoints_full, target_image, verbose)
+    H = calculate_transform(best_piece, best_piece_matches, best_piece_keypoints, keypoints_full, target_image, byhand=True, verbose=verbose)
     print(f"Calculating transform took {time.time() - transform_start:.3f} seconds")
     
-    return canvas, bbox, best_piece
+    return H, bbox, best_piece
 
 
 def find_best_piece(pieces, sift, bf, target_image, keypoints_full, descriptors_full, verbose=False):
@@ -112,3 +86,96 @@ def find_best_piece(pieces, sift, bf, target_image, keypoints_full, descriptors_
     bbox = best_piece['position'] + best_piece['size']
     
     return best_piece, best_piece_keypoints, best_piece_matches, bbox
+
+def update_canvas(H, canvas, piece):
+    
+    print("H type:", type(H))
+    print("H shape:", H.shape if isinstance(H, np.ndarray) else "not ndarray")
+    print("H contents:", H)
+    
+    H = np.float32(H)
+    # Create mask and remove existing content
+    # Warp piece and its mask
+    warped_piece = cv2.warpPerspective(piece['image'], H, 
+                                    (canvas.shape[1], canvas.shape[0]))
+    warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
+                                    (canvas.shape[1], canvas.shape[0]))
+    warped_mask = (warped_mask * 255).astype(np.uint8)
+    
+    # Convert mask to 3 channels for masking colored image
+    warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
+    
+    # Create inverse mask for the canvas
+    canvas_mask = cv2.bitwise_not(warped_mask_3d)
+    
+    # Combine the existing canvas with the new piece
+    canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
+    piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
+    canvas = cv2.add(canvas_masked, piece_masked)
+    
+
+    canvas_with_frame = cv2.rectangle(canvas.copy(), 
+                                    (0, 0), 
+                                    (canvas.shape[1]-1, canvas.shape[0]-1), 
+                                    (0, 255, 0), 5)
+    
+    return canvas_with_frame
+    
+    
+def create_fullscreen_display(frame, canvas, update_interval, last_update):
+
+    screen = cv2.namedWindow("Real-time Puzzle Assembly", cv2.WINDOW_NORMAL)
+    cv2.setWindowProperty("Real-time Puzzle Assembly", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    
+    screen_width = cv2.getWindowImageRect("Real-time Puzzle Assembly")[2]
+    screen_height = cv2.getWindowImageRect("Real-time Puzzle Assembly")[3]
+    
+    # Calculate aspect ratios
+    frame_aspect = frame.shape[1] / frame.shape[0]
+    canvas_aspect = canvas.shape[1] / canvas.shape[0]
+    
+    # Target height will be half of screen height to accommodate both images
+    target_height = screen_height // 2
+    
+    # Calculate widths based on aspect ratio
+    frame_width = int(target_height * frame_aspect)
+    canvas_width = int(target_height * canvas_aspect)
+    
+    # Resize images while maintaining aspect ratio
+    frame_resized = cv2.resize(frame, (frame_width, target_height))
+    canvas_resized = cv2.resize(canvas, (canvas_width, target_height))
+    
+    # Create a white background image of screen size
+    background = np.full((screen_height, screen_width, 3), 255, dtype=np.uint8)
+    
+    # Calculate positions to center the images
+    frame_x = (screen_width - (frame_width + canvas_width)) // 3
+    canvas_x = frame_x * 2 + frame_width
+    y_offset = (screen_height - target_height) // 2
+    
+    # Place images on white background
+    background[y_offset:y_offset+target_height, frame_x:frame_x+frame_width] = frame_resized
+    background[y_offset:y_offset+target_height, canvas_x:canvas_x+canvas_width] = canvas_resized
+    
+    # Add the countdown text
+    current_time = time.time()
+    remaining_time = max(0, update_interval - (current_time - last_update))
+    text = f"Next match in {remaining_time:.1f} secs..."
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 1.0
+    color = (0, 255, 0)
+    thickness = 2
+    text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+    text_x = screen_width - text_size[0] - 20
+    text_y = 40
+    
+    cv2.putText(background, text, (text_x, text_y), font, font_scale, color, thickness)
+    
+    escape_text = "Press 'q' to quit"
+    escape_size = cv2.getTextSize(escape_text, font, font_scale, thickness)[0]
+    escape_x = screen_width - escape_size[0] - 20
+    escape_y = screen_height - 40
+    
+    cv2.putText(background, escape_text, (escape_x, escape_y), font, font_scale, color, thickness)
+    
+    return background

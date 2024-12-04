@@ -265,6 +265,7 @@ def calculate_keypoints_sift(sift, piece, puzzle, verbose=False):
     return keypoints_filtered, descriptors_filtered
 
 def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, verbose=False):
+    
     bf = cv2.BFMatcher()
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
 
@@ -344,33 +345,33 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
         H = homography_by_hand(src_pts, dst_pts)
     else :
         H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    
+    if verbose :        
+        if H is not None:
+            # Warp piece and its mask
+            warped_piece = cv2.warpPerspective(piece['image'], H, 
+                                            (canvas.shape[1], canvas.shape[0]))
+            warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
+                                            (canvas.shape[1], canvas.shape[0]))
+            warped_mask = (warped_mask * 255).astype(np.uint8)
             
-    if H is not None:
-        # Warp piece and its mask
-        warped_piece = cv2.warpPerspective(piece['image'], H, 
-                                        (canvas.shape[1], canvas.shape[0]))
-        warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
-                                        (canvas.shape[1], canvas.shape[0]))
-        warped_mask = (warped_mask * 255).astype(np.uint8)
-        
-        # Convert mask to 3 channels for masking colored image
-        warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
-        
-        # Create inverse mask for the canvas
-        canvas_mask = cv2.bitwise_not(warped_mask_3d)
-        
-        # Combine the existing canvas with the new piece
-        canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
-        piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
-        canvas = cv2.add(canvas_masked, piece_masked)
-        
+            # Convert mask to 3 channels for masking colored image
+            warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
+            
+            # Create inverse mask for the canvas
+            canvas_mask = cv2.bitwise_not(warped_mask_3d)
+            
+            # Combine the existing canvas with the new piece
+            canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
+            piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
+            canvas = cv2.add(canvas_masked, piece_masked)
+            
 
-        canvas_with_frame = cv2.rectangle(canvas.copy(), 
-                                        (0, 0), 
-                                        (canvas.shape[1]-1, canvas.shape[0]-1), 
-                                        (0, 255, 0), 5)
-        
-        if verbose :
+            canvas_with_frame = cv2.rectangle(canvas.copy(), 
+                                            (0, 0), 
+                                            (canvas.shape[1]-1, canvas.shape[0]-1), 
+                                            (0, 255, 0), 5)
+            
             # Display assembled puzzle
             plt.figure(figsize=(10, 10))
             plt.imshow(cv2.cvtColor(canvas_with_frame, cv2.COLOR_BGR2RGB))
@@ -378,4 +379,4 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
             plt.axis("off")
             plt.show()
     
-    return canvas, H
+    return H
