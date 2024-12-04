@@ -1,7 +1,7 @@
 from fonctions_image import *
 
 # Variables
-url = "http://10.220.14.33:8080/video"
+url = "http://192.168.30.13:8080/video"
 puzzle_image_path = "nos_puzzles/yakari.jpg"
 verbose = True
 
@@ -18,7 +18,11 @@ pieces = extract_pieces(frame, verbose)
 show_found_pieces(pieces)
 
 for piece in pieces:
-    piece, good_matches, keypoints_piece = calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose)
+    keypoints_piece, descriptors_piece, keypoints_full, descriptors_full = calculate_keypoints_sift(piece, target_image)
+    good_matches = calculate_matches(piece, target_image, keypoints_piece, descriptors_piece, keypoints_full, descriptors_full)
+    
+    
     if len(good_matches) > 4 :
-        canvas = calculate_transform(piece, good_matches, keypoints_piece, keypoints_full, target_image, verbose)
+        canvas = calculate_transform(piece, good_matches, keypoints_piece, keypoints_full, target_image, byhand=False,verbose=True)
+        
 

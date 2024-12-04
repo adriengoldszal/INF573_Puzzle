@@ -251,53 +251,53 @@ def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
     
     return filtered_keypoints, np.array(filtered_descriptors)
 
-def calculate_matches(piece, sift, bf, target_image, keypoints_full, descriptors_full, filter_edges,verbose=True):
-    """Calculate matches between one piece and the target image."""
+def calculate_keypoints_sift(piece, puzzle):
     
-    # Detect keypoints and compute descriptors
-    sift_time = time.time()
+    sift = cv2.SIFT_create()
+    keypoints_full, descriptors_full = sift.detectAndCompute(puzzle, None)
+    
     keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
+
+    keypoints_filtered, descriptors_filtered = filter_keypoints_by_mask(keypoints, descriptors, piece['binary_mask'])
     
-    if filter_edges:
-        keypoints, descriptors = filter_keypoints_by_mask(
-        keypoints,
-        descriptors,
-        piece["binary_mask"]
-        )
-    print(f"Keypoint detection and description took {time.time() - sift_time:.3f} seconds")
+    drawn_keypoints = cv2.drawKeypoints(piece["matching_image"], keypoints_filtered, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    plt.imshow(drawn_keypoints)
+    plt.show()
     
-    # Match descriptors
-    knn_matcher_time = time.time()
+    return keypoints_filtered, descriptors_filtered, keypoints_full, descriptors_full
+
+def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full):
+    bf = cv2.BFMatcher()
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
-    print(f"KNN matching took {time.time() - knn_matcher_time:.3f} seconds")
-    
+
     good_matches = []
     for m, n in matches:
-        if m.distance < 0.8 * n.distance:  # Lowe's ratio test
+        if m.distance < 1*n.distance:  # Lowe's ratio test (pas sûr de le garder car features peuvent être proches)
             good_matches.append(m)
-    
-    good_matches = sorted(good_matches, key=lambda x: x.distance)[:20]
+
+    good_matches = sorted(good_matches, key=lambda x: x.distance)[:50]
     #La spatial consistency crée un bottleneck majeur
     good_matches = get_spatially_consistent_matches_optimized(good_matches, keypoints_full, piece['size'])
-    
-    if verbose :
+
+    print("Matches and their distances:")
+    for idx, match in enumerate(good_matches):
+        print(f"Match {idx + 1}: Distance = {match.distance:.2f}")
         
-        # Draw matches
-        match_img = cv2.drawMatches(
-            piece['matching_image'], keypoints,
-            target_image, keypoints_full,
-            good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-            matchesThickness=3,
-            matchColor=(0, 255, 0),
-        )
-        # Display matches 
-        print(f"Found {len(good_matches)} good matches")
-        plt.figure(figsize=(10, 5))
-        plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
-        plt.axis('off')
-        plt.show()
+    # Draw matches
+    match_img = cv2.drawMatches(
+        piece['matching_image'], keypoints,
+        puzzle, keypoints_full,
+        good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+        matchesThickness=3,
+        matchColor=(0, 255, 0),
+    )
+    # Display matches 
+    print(f"Found {len(good_matches)} good matches")
+    plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
+    plt.show()
     
-    return piece, good_matches, keypoints
+    return good_matches
+
 
 def homography_by_hand(src_pts, dst_pts) :
     # Reshape points to 2D arrays

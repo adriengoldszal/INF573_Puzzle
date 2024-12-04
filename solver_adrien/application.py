@@ -100,9 +100,8 @@ def find_best_piece(pieces, sift, bf, target_image, keypoints_full, descriptors_
     
     for i, piece in enumerate(pieces):
         match_start = time.time()
-        piece, good_matches, keypoints_piece = calculate_matches(
-            piece, sift, bf, target_image, keypoints_full, descriptors_full, verbose
-        )
+        keypoints_piece, descriptors_piece, keypoints_full, descriptors_full = calculate_keypoints_sift(piece, target_image)
+        good_matches = calculate_matches(piece, target_image, keypoints_piece, descriptors_piece, keypoints_full, descriptors_full)
         if len(good_matches) > max_matches:
             max_matches = len(good_matches)
             best_piece = piece
