@@ -1,7 +1,7 @@
 import cv2
 
 # Remplacez par l'URL de votre caméra IP
-url = "http://10.222.14.104:8080/video"  # Assurez-vous que c'est bien l'URL du flux vidéo
+url = "http://10.222.27.50:8080"  # Assurez-vous que c'est bien l'URL du flux vidéo
 
 # Ouvrir le flux vidéo
 cap = cv2.VideoCapture(url)
