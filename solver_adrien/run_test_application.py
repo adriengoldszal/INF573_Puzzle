@@ -1,6 +1,6 @@
 from application import run_realtime_view
 
-url = "http://10.220.14.33:8080/video"
+url = "http://192.168.30.13:8080/video"
 puzzle_image_path = "nos_puzzles/yakari.jpg"
 verbose = False
 update_interval=10
