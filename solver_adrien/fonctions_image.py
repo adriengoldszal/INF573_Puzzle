@@ -1,9 +1,11 @@
 import cv2 as cv2
 from skimage import io
 import matplotlib.pyplot as plt
+from homographies_2D import *
 import numpy as np
 from scipy.spatial.distance import cdist
 import time
+
 
 def start_camera(url):
     
@@ -28,20 +30,6 @@ def read_frame(cap):
     return frame
 
 
-def get_features(img_piece):
-    "Prend en argument une image de pièce de puzzle et renvoie un vecteur de caractéristiques et des keypoints"
-
-    sift=cv2.SIFT_create()
-    keypoints_full, descriptors_full = sift.detectAndCompute(img_piece, None)
-    return keypoints_full, descriptors_full
-
-def load_image_sift_knn(image_path):
-    """Load solved puzzle with knn and sift."""
-    sift = cv2.SIFT_create()
-    bf = cv2.BFMatcher()
-    target_image = cv2.imread(image_path)
-    keypoints_full, descriptors_full = sift.detectAndCompute(target_image, None)
-    return sift, bf, target_image, keypoints_full, descriptors_full
 
 def extract_pieces(frame, verbose=False):
         """Extract multiple puzzle pieces from the camera frame."""
@@ -176,7 +164,7 @@ def show_found_pieces(pieces) :
         print("No pieces were found in the image")
 
 
-def get_spatially_consistent_matches_optimized(good_matches, keypoints_full, piece_size):
+def filter_spatially_consisten_matches(good_matches, keypoints_full, piece_size):
     """
     Find a large subset of matches where all matched points in the full image 
     are within a distance threshold based on the piece size.
@@ -232,24 +220,42 @@ def get_spatially_consistent_matches_optimized(good_matches, keypoints_full, pie
     
     return [good_matches[i] for i in consistent_indices]
 
-def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
-    """Reducing the mask to get rid of the edge keypoints that are just noise
+
+def get_mask_with_margin(mask, margin=10):
+    """Add a margin around the mask to include more keypoints
 
     """
-    height, width = mask.shape
+    
     kernel = np.ones((margin*2+1, margin*2+1), np.uint8)
     eroded_mask = cv2.erode(mask.astype(np.uint8), kernel)
     
+    return eroded_mask
+
+def apply_mask_to_features(keypoints, descriptors,initial_mask, eroded_mask, margin=10):
+    """Apply the mask that has a margin to remove noisy keypoitns and descriptors
+
+    """
+    height, width = initial_mask.shape
     filtered_keypoints = []
     filtered_descriptors = []
-    
     for i, kp in enumerate(keypoints):
         x, y = map(int, kp.pt)
         if 0 <= y < height and 0 <= x < width and eroded_mask[y, x] > 0:
             filtered_keypoints.append(kp)
             filtered_descriptors.append(descriptors[i])
+
+        return filtered_keypoints, np.array(filtered_descriptors)
+
+
+def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
+    """Reducing the mask to get rid of the edge keypoints that are just noise
+
+    """
+    eroded_mask = get_mask_with_margin(mask, margin)
+    keypoints_filtered, descriptors_filtered = apply_mask_to_features(keypoints, descriptors, mask, eroded_mask, margin)
     
-    return filtered_keypoints, np.array(filtered_descriptors)
+    return keypoints_filtered, descriptors_filtered
+
 
 def calculate_keypoints_sift(sift, piece, puzzle, verbose=False):
     
@@ -264,6 +270,7 @@ def calculate_keypoints_sift(sift, piece, puzzle, verbose=False):
     
     return keypoints_filtered, descriptors_filtered
 
+
 def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, verbose=False):
     
     bf = cv2.BFMatcher()
@@ -276,7 +283,7 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
 
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:50]
     #La spatial consistency crée un bottleneck majeur
-    good_matches = get_spatially_consistent_matches_optimized(good_matches, keypoints_full, piece['size'])
+    good_matches = filter_spatially_consisten_matches(good_matches, keypoints_full, piece['size'])
 
     print("Matches and their distances:")
     for idx, match in enumerate(good_matches):
@@ -299,84 +306,3 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
     return good_matches
 
 
-def homography_by_hand(src_pts, dst_pts) :
-    # Reshape points to 2D arrays
-    src = src_pts.reshape(-1, 2)
-    dst = dst_pts.reshape(-1, 2)
-    
-    # Calculate centroids
-    src_centroid = np.mean(src, axis=0)
-    dst_centroid = np.mean(dst, axis=0)
-    
-    # Center the points
-    src_centered = src - src_centroid
-    dst_centered = dst - dst_centroid
-    
-    # Calculate rotation and scale
-    # Using SVD for robust calculation
-    covariance_matrix = np.dot(src_centered.T, dst_centered)
-    U, _, Vt = np.linalg.svd(covariance_matrix)
-    rotation_matrix = np.dot(Vt.T, U.T)
-    
-    # Ensure we have a rotation (determinant should be 1)
-    if np.linalg.det(rotation_matrix) < 0:
-        Vt[-1, :] *= -1
-        rotation_matrix = np.dot(Vt.T, U.T)
-    
-    # Calculate scale
-    scale = np.sqrt(np.sum(dst_centered**2) / np.sum(src_centered**2))
-    
-    # Combine into transformation matrix
-    H = np.eye(3)
-    H[:2, :2] = scale * rotation_matrix
-    H[:2, 2] = dst_centroid - np.dot(scale * rotation_matrix, src_centroid)
-    
-    return H
-    
-def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_image, byhand, verbose=False):
-    """Calculate homography transform and apply piece to the puzzle canvas."""
-    
-    canvas = target_image.copy()
-    # Check if we have enough matches
-    src_pts = np.float32([keypoints_piece[m.queryIdx].pt for m in matches]).reshape(-1, 1, 2)
-    dst_pts = np.float32([keypoints_full[m.trainIdx].pt for m in matches]).reshape(-1, 1, 2)
-    
-    if byhand :
-        H = homography_by_hand(src_pts, dst_pts)
-    else :
-        H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-    
-    if verbose :        
-        if H is not None:
-            # Warp piece and its mask
-            warped_piece = cv2.warpPerspective(piece['image'], H, 
-                                            (canvas.shape[1], canvas.shape[0]))
-            warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
-                                            (canvas.shape[1], canvas.shape[0]))
-            warped_mask = (warped_mask * 255).astype(np.uint8)
-            
-            # Convert mask to 3 channels for masking colored image
-            warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
-            
-            # Create inverse mask for the canvas
-            canvas_mask = cv2.bitwise_not(warped_mask_3d)
-            
-            # Combine the existing canvas with the new piece
-            canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
-            piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
-            canvas = cv2.add(canvas_masked, piece_masked)
-            
-
-            canvas_with_frame = cv2.rectangle(canvas.copy(), 
-                                            (0, 0), 
-                                            (canvas.shape[1]-1, canvas.shape[0]-1), 
-                                            (0, 255, 0), 5)
-            
-            # Display assembled puzzle
-            plt.figure(figsize=(10, 10))
-            plt.imshow(cv2.cvtColor(canvas_with_frame, cv2.COLOR_BGR2RGB))
-            plt.title(f"Assembled Puzzle After Adding Piece")
-            plt.axis("off")
-            plt.show()
-    
-    return H

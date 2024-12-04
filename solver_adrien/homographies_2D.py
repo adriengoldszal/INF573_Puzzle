@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 
 
-def estimate_rigid_transform(src_points, dst_points):
+def homography_unknown_scale_naive(src_points, dst_points):
     """
     Estimate scale, rotation, and translation, leveraging the full structure of the rotation matrix.
     
@@ -48,7 +48,7 @@ def estimate_rigid_transform(src_points, dst_points):
 
 
 
-def ransac_transform_estimation(kp1, kp2, matches, max_iterations=1000, threshold=1.0, inlier_ratio=0.5):
+def homography_unknown_scale(kp1, kp2, matches, max_iterations=1000, threshold=1.0, inlier_ratio=0.5):
     """
     Estimate scale, rotation, and translation using RANSAC.
     
@@ -83,7 +83,7 @@ def ransac_transform_estimation(kp1, kp2, matches, max_iterations=1000, threshol
 
         # Step 2: Estimate the transformation using the sampled points
         try:
-            scale, theta, t = estimate_rigid_transform(src_sample, dst_sample)
+            scale, theta, t = homography_unknown_scale_naive(src_sample, dst_sample)
         except:
             continue  # Skip this iteration if estimation fails
 
@@ -111,7 +111,7 @@ def ransac_transform_estimation(kp1, kp2, matches, max_iterations=1000, threshol
     if best_model is not None:
         inlier_src = src_points[best_inliers]
         inlier_dst = dst_points[best_inliers]
-        best_scale, best_theta, best_t = estimate_rigid_transform(inlier_src, inlier_dst)
+        best_scale, best_theta, best_t = homography_unknown_scale_naive(inlier_src, inlier_dst)
     else:
         raise ValueError("RANSAC failed to find a valid model.")
 
@@ -119,7 +119,7 @@ def ransac_transform_estimation(kp1, kp2, matches, max_iterations=1000, threshol
 
 import numpy as np
 
-def ransac_transform_estimation_known_scale(kp1, kp2, matches, scale, max_iterations=1000, threshold=1.0, inlier_ratio=0.5):
+def homography_known_scale(kp1, kp2, matches, scale, max_iterations=1000, threshold=1.0, inlier_ratio=0.5):
     """
     Estimate rotation and translation using RANSAC, assuming known scale.
     
@@ -179,13 +179,13 @@ def ransac_transform_estimation_known_scale(kp1, kp2, matches, scale, max_iterat
     if best_model is not None:
         inlier_src = src_points[best_inliers]
         inlier_dst = dst_points[best_inliers]
-        best_theta, best_t = estimate_transform_known_scale(inlier_src, inlier_dst, scale)
+        best_theta, best_t = homography_known_scale_naive(inlier_src, inlier_dst, scale)
     else:
         raise ValueError("RANSAC failed to find a valid model.")
 
     return best_theta, best_t
 
-def estimate_transform_known_scale(src_points, dst_points, scale):
+def homography_known_scale_naive(src_points, dst_points, scale):
     """
     Estimate rotation and translation given a known scale.
     
@@ -234,17 +234,6 @@ def homography_matrix(s,theta, t):
     return H
 
 
-def get_keypoints_and_des(img):
-    sift_ = cv2.SIFT_create()
-    kp, des = sift_.detectAndCompute(img, None)  
-    return kp, des
-
-
-def match_keypoints(kp1, des1, kp2, des2):
-    bf = cv2.BFMatcher(cv2.NORM_L2, crossCheck=True)
-    matches = bf.match(des1, des2)
-    return matches
-
 def display_matches(img1, kp1, img2, kp2, matches, title="Matches"):
     """
     Display matches between two images using matplotlib and OpenCV.
@@ -268,31 +257,10 @@ def display_matches(img1, kp1, img2, kp2, matches, title="Matches"):
     plt.title(title)
     plt.show()
 
-def extract_transform_from_homography(H):
-    """
-    Extract scale, rotation, and translation from a given homography matrix.
-    
-    Parameters:
-        H (ndarray): 3x3 homography matrix.
-    
-    Returns:
-        s (float): Scale factor.
-        theta (float): Rotation angle in radians.
-        t (ndarray): Translation vector [t_x, t_y].
-    """
-    # Step 1: Extract translation
-    t = H[:2, 2]
 
-    # Step 2: Extract scale
-    s = np.sqrt(H[0, 0]**2 + H[1, 0]**2)
 
-    # Step 3: Extract rotation
-    theta = np.arctan2(H[1, 0], H[0, 0])
-
-    return s, theta, t
-
-def show_homography_on_puzzle(img, puzzle, H):
-    height, width, _ = puzzle.shape  # Taille de l'image cible
+def show_homography_on_puzzle(img, puzzle_img, H):
+    height, width, _ = puzzle_img.shape  # Taille de l'image cible
     warped_piece1 = cv2.warpPerspective(img, H, (width, height))
 
     # Superposer les images
