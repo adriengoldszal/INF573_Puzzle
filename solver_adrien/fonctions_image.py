@@ -251,22 +251,21 @@ def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
     
     return filtered_keypoints, np.array(filtered_descriptors)
 
-def calculate_keypoints_sift(piece, puzzle):
-    
-    sift = cv2.SIFT_create()
-    keypoints_full, descriptors_full = sift.detectAndCompute(puzzle, None)
+def calculate_keypoints_sift(sift, piece, puzzle, verbose=False):
     
     keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
 
     keypoints_filtered, descriptors_filtered = filter_keypoints_by_mask(keypoints, descriptors, piece['binary_mask'])
     
-    drawn_keypoints = cv2.drawKeypoints(piece["matching_image"], keypoints_filtered, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-    plt.imshow(drawn_keypoints)
-    plt.show()
+    if verbose :
+        drawn_keypoints = cv2.drawKeypoints(piece["matching_image"], keypoints_filtered, None, flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+        plt.imshow(drawn_keypoints)
+        plt.show()
     
-    return keypoints_filtered, descriptors_filtered, keypoints_full, descriptors_full
+    return keypoints_filtered, descriptors_filtered
 
-def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full):
+def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, verbose=False):
+    
     bf = cv2.BFMatcher()
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
 
@@ -282,19 +281,20 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
     print("Matches and their distances:")
     for idx, match in enumerate(good_matches):
         print(f"Match {idx + 1}: Distance = {match.distance:.2f}")
-        
-    # Draw matches
-    match_img = cv2.drawMatches(
-        piece['matching_image'], keypoints,
-        puzzle, keypoints_full,
-        good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
-        matchesThickness=3,
-        matchColor=(0, 255, 0),
-    )
-    # Display matches 
-    print(f"Found {len(good_matches)} good matches")
-    plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
-    plt.show()
+    
+    if verbose :
+        # Draw matches
+        match_img = cv2.drawMatches(
+            piece['matching_image'], keypoints,
+            puzzle, keypoints_full,
+            good_matches, None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS,
+            matchesThickness=3,
+            matchColor=(0, 255, 0),
+        )
+        # Display matches 
+        print(f"Found {len(good_matches)} good matches")
+        plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
+        plt.show()
     
     return good_matches
 
@@ -345,33 +345,33 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
         H = homography_by_hand(src_pts, dst_pts)
     else :
         H, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
+    
+    if verbose :        
+        if H is not None:
+            # Warp piece and its mask
+            warped_piece = cv2.warpPerspective(piece['image'], H, 
+                                            (canvas.shape[1], canvas.shape[0]))
+            warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
+                                            (canvas.shape[1], canvas.shape[0]))
+            warped_mask = (warped_mask * 255).astype(np.uint8)
             
-    if H is not None:
-        # Warp piece and its mask
-        warped_piece = cv2.warpPerspective(piece['image'], H, 
-                                        (canvas.shape[1], canvas.shape[0]))
-        warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
-                                        (canvas.shape[1], canvas.shape[0]))
-        warped_mask = (warped_mask * 255).astype(np.uint8)
-        
-        # Convert mask to 3 channels for masking colored image
-        warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
-        
-        # Create inverse mask for the canvas
-        canvas_mask = cv2.bitwise_not(warped_mask_3d)
-        
-        # Combine the existing canvas with the new piece
-        canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
-        piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
-        canvas = cv2.add(canvas_masked, piece_masked)
-        
+            # Convert mask to 3 channels for masking colored image
+            warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
+            
+            # Create inverse mask for the canvas
+            canvas_mask = cv2.bitwise_not(warped_mask_3d)
+            
+            # Combine the existing canvas with the new piece
+            canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
+            piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
+            canvas = cv2.add(canvas_masked, piece_masked)
+            
 
-        canvas_with_frame = cv2.rectangle(canvas.copy(), 
-                                        (0, 0), 
-                                        (canvas.shape[1]-1, canvas.shape[0]-1), 
-                                        (0, 255, 0), 5)
-        
-        if verbose :
+            canvas_with_frame = cv2.rectangle(canvas.copy(), 
+                                            (0, 0), 
+                                            (canvas.shape[1]-1, canvas.shape[0]-1), 
+                                            (0, 255, 0), 5)
+            
             # Display assembled puzzle
             plt.figure(figsize=(10, 10))
             plt.imshow(cv2.cvtColor(canvas_with_frame, cv2.COLOR_BGR2RGB))
@@ -379,4 +379,4 @@ def calculate_transform(piece, matches, keypoints_piece, keypoints_full, target_
             plt.axis("off")
             plt.show()
     
-    return canvas, H
+    return H
