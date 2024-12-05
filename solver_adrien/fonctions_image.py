@@ -312,8 +312,11 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
 
 
 def calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full, scale, theta, t) :
+    
+        #H = cv2.findHomography(cv2.RANSAC, np.array([best_piece_keypoints[m.queryIdx].pt for m in best_piece_matches]), np.array([keypoints_full[m.trainIdx].pt for m in best_piece_matches]))[0]
         
         if theta is None or t is None or scale is None:
+            
             scale, theta, t = homography_unknown_scale(best_piece_keypoints, keypoints_full, best_piece_matches, inlier_ratio=0.3, threshold=5)
         else :
             scale, theta, t = homography_known_scale(best_piece_keypoints, keypoints_full, best_piece_matches,scale)

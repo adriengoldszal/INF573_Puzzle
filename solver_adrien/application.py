@@ -2,6 +2,7 @@ import cv2
 import time
 import numpy as np
 from fonctions_image import *
+from homographies_2D import *
 
 def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
     # Initialize camera and puzzle image
@@ -33,6 +34,8 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             # Extract pieces and process them
             H, scale, theta, t, bbox, best_piece = update_puzzle(frame.copy(), sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
 
+            show_homography_on_puzzle(best_piece['matching_image'], target_image, H)
+            
         canvas = update_canvas(H, canvas, best_piece)
         
         if bbox is not None:

@@ -24,6 +24,13 @@ def homography_unknown_scale_naive(src_points, dst_points):
     # Step 2: Center the points
     src_centered = src_points - src_centroid
     dst_centered = dst_points - dst_centroid
+    
+    print(f'src_centered: {src_centered}')
+    print(f'dst_centered: {dst_centered}')
+    
+    mask = (np.linalg.norm(src_centered, axis=1) != 0) & (np.linalg.norm(dst_centered, axis=1) != 0)
+    src_centered = src_centered[mask]
+    dst_centered = dst_centered[mask]
 
     # Step 3: Compute scale
     scale = np.linalg.norm(dst_centered) / np.linalg.norm(src_centered)
