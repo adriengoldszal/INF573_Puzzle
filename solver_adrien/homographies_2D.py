@@ -48,7 +48,7 @@ def homography_unknown_scale_naive(src_points, dst_points):
 
 
 
-def homography_unknown_scale(kp1, kp2, matches, max_iterations=1000, threshold=1.0, inlier_ratio=0.5):
+def homography_unknown_scale(kp1, kp2, matches,inlier_ratio, threshold, max_iterations=1000):
     """
     Estimate scale, rotation, and translation using RANSAC.
     
@@ -119,7 +119,7 @@ def homography_unknown_scale(kp1, kp2, matches, max_iterations=1000, threshold=1
 
 import numpy as np
 
-def homography_known_scale(kp1, kp2, matches, scale, max_iterations=1000, threshold=1.0, inlier_ratio=0.5):
+def homography_known_scale(kp1, kp2, matches, scale, max_iterations=1000, threshold=5.0, inlier_ratio=0.3):
     """
     Estimate rotation and translation using RANSAC, assuming known scale.
     
@@ -267,3 +267,4 @@ def show_homography_on_puzzle(img, puzzle_img, H):
     result = cv2.addWeighted(puzzle_img, 0.5, warped_piece1, 0.5, 0)
 
     plt.imshow(result)
+    plt.show()

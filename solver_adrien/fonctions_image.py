@@ -314,9 +314,9 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
 def calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full, scale, theta, t) :
         
         if theta is None or t is None or scale is None:
-            scale, theta, t = homography_unknown_scale(best_piece_keypoints, keypoints_full, best_piece_matches)
+            scale, theta, t = homography_unknown_scale(best_piece_keypoints, keypoints_full, best_piece_matches, inlier_ratio=0.3, threshold=5)
         else :
-            scale, theta, t = homography_known_scale(best_piece_keypoints, keypoints_full, best_piece_matches, scale, theta, t)
+            scale, theta, t = homography_known_scale(best_piece_keypoints, keypoints_full, best_piece_matches,scale)
         
         H = homography_matrix(scale, theta, t)
         

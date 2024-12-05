@@ -27,4 +27,5 @@ for piece in pieces:
     
     
     if len(good_matches) > 4 :
-        canvas = calculate_transform(good_matches, keypoints_piece, keypoints_full,scale, theta, t)
+        H, scale, theta, t = calculate_transform(good_matches, keypoints_piece, keypoints_full,scale, theta, t)
+        show_homography_on_puzzle(piece['matching_image'], target_image, H)
