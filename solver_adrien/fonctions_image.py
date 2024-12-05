@@ -5,7 +5,7 @@ from homographies_2D import *
 import numpy as np
 from scipy.spatial.distance import cdist
 import time
-
+from homographies_2D import *
 
 def start_camera(url):
     
@@ -29,7 +29,15 @@ def read_frame(cap):
         return False, None
     return frame
 
-
+def load_puzzle(image_path):
+    """Load an image from file."""
+    image = cv2.imread(image_path)
+    if image is None:
+        print(f"Error: Could not load image from {image_path}")
+        return None
+    sift = cv2.SIFT_create()
+    keypoints, descriptors = sift.detectAndCompute(image, None)
+    return image, sift, keypoints, descriptors
 
 def extract_pieces(frame, verbose=False):
         """Extract multiple puzzle pieces from the camera frame."""
@@ -164,7 +172,7 @@ def show_found_pieces(pieces) :
         print("No pieces were found in the image")
 
 
-def filter_spatially_consisten_matches(good_matches, keypoints_full, piece_size):
+def filter_spatially_consistent_matches(good_matches, keypoints_full, piece_size):
     """
     Find a large subset of matches where all matched points in the full image 
     are within a distance threshold based on the piece size.
@@ -231,10 +239,7 @@ def get_mask_with_margin(mask, margin=10):
     
     return eroded_mask
 
-def apply_mask_to_features(keypoints, descriptors,initial_mask, eroded_mask, margin=10):
-    """Apply the mask that has a margin to remove noisy keypoitns and descriptors
-
-    """
+def apply_mask_to_features(keypoints, descriptors, initial_mask, eroded_mask, margin=10):
     height, width = initial_mask.shape
     filtered_keypoints = []
     filtered_descriptors = []
@@ -243,8 +248,8 @@ def apply_mask_to_features(keypoints, descriptors,initial_mask, eroded_mask, mar
         if 0 <= y < height and 0 <= x < width and eroded_mask[y, x] > 0:
             filtered_keypoints.append(kp)
             filtered_descriptors.append(descriptors[i])
-
-        return filtered_keypoints, np.array(filtered_descriptors)
+    
+    return filtered_keypoints, np.array(filtered_descriptors)
 
 
 def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
@@ -252,12 +257,12 @@ def filter_keypoints_by_mask(keypoints, descriptors, mask, margin=10):
 
     """
     eroded_mask = get_mask_with_margin(mask, margin)
-    keypoints_filtered, descriptors_filtered = apply_mask_to_features(keypoints, descriptors, mask, eroded_mask, margin)
+    keypoints_filtered, descriptors_filtered = apply_mask_to_features(keypoints, descriptors, mask, eroded_mask)
     
     return keypoints_filtered, descriptors_filtered
 
 
-def calculate_keypoints_sift(sift, piece, puzzle, verbose=False):
+def calculate_keypoints_sift(sift, piece, verbose=False):
     
     keypoints, descriptors = sift.detectAndCompute(piece['matching_image'], None)
 
@@ -283,7 +288,7 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
 
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:50]
     #La spatial consistency crée un bottleneck majeur
-    good_matches = filter_spatially_consisten_matches(good_matches, keypoints_full, piece['size'])
+    good_matches = filter_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
 
     print("Matches and their distances:")
     for idx, match in enumerate(good_matches):
@@ -306,3 +311,14 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
     return good_matches
 
 
+def calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full, scale, theta, t) :
+        
+        if theta is None or t is None or scale is None:
+            scale, theta, t = homography_unknown_scale(best_piece_keypoints, keypoints_full, best_piece_matches)
+        else :
+            scale, theta, t = homography_known_scale(best_piece_keypoints, keypoints_full, best_piece_matches, scale, theta, t)
+        
+        H = homography_matrix(scale, theta, t)
+        
+        return H, scale, theta, t
+            

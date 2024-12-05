@@ -5,9 +5,13 @@ url = "http://192.168.30.13:8080/video"
 puzzle_image_path = "nos_puzzles/yakari.jpg"
 verbose = True
 
+#Transform :
+scale = None
+theta = None
+t = None
 # Chargement
 cap = start_camera(url)
-sift, bf, target_image, keypoints_full, descriptors_full = load_image_sift_knn(puzzle_image_path)
+target_image, sift, keypoints_full, descriptors_full = load_puzzle(puzzle_image_path)
 
 frame = read_frame(cap)
 print(frame.shape)
@@ -18,11 +22,9 @@ pieces = extract_pieces(frame, verbose)
 show_found_pieces(pieces)
 
 for piece in pieces:
-    keypoints_piece, descriptors_piece, keypoints_full, descriptors_full = calculate_keypoints_sift(piece, target_image)
-    good_matches = calculate_matches(piece, target_image, keypoints_piece, descriptors_piece, keypoints_full, descriptors_full)
+    keypoints_piece, descriptors_piece = calculate_keypoints_sift(sift, piece, verbose=True)
+    good_matches = calculate_matches(piece, target_image, keypoints_piece, descriptors_piece, keypoints_full, descriptors_full, verbose=True)
     
     
     if len(good_matches) > 4 :
-        canvas = calculate_transform(piece, good_matches, keypoints_piece, keypoints_full, target_image, byhand=False,verbose=True)
-        
-
+        canvas = calculate_transform(good_matches, keypoints_piece, keypoints_full,scale, theta, t)

@@ -151,7 +151,7 @@ def homography_known_scale(kp1, kp2, matches, scale, max_iterations=1000, thresh
 
         # Step 2: Estimate the transformation using the sampled points
         try:
-            theta, t = estimate_transform_known_scale(src_sample, dst_sample, scale)
+            theta, t = homography_known_scale_naive(src_sample, dst_sample, scale)
         except:
             continue  # Skip this iteration if estimation fails
 
@@ -264,6 +264,6 @@ def show_homography_on_puzzle(img, puzzle_img, H):
     warped_piece1 = cv2.warpPerspective(img, H, (width, height))
 
     # Superposer les images
-    result = cv2.addWeighted(puzzle, 0.5, warped_piece1, 0.5, 0)
+    result = cv2.addWeighted(puzzle_img, 0.5, warped_piece1, 0.5, 0)
 
     plt.imshow(result)

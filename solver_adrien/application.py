@@ -6,10 +6,15 @@ from fonctions_image import *
 def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
     # Initialize camera and puzzle image
     cap = start_camera(url)
-    sift, bf, target_image, keypoints_full, descriptors_full = load_image_sift_knn(puzzle_image_path)
+    target_image, sift, keypoints_full, descriptors_full = load_puzzle(puzzle_image_path)
     last_update = 0
     canvas = np.zeros_like(target_image)  # Initialize canvas
     bbox = None
+    
+    # Initialize variables for homography calculation
+    scale = None
+    theta = None
+    t = None
     
     while True:
         # Get the current frame
@@ -26,8 +31,8 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             last_update = current_time
             
             # Extract pieces and process them
-            H, bbox, best_piece = update_puzzle(frame.copy(), sift, bf, target_image, keypoints_full, descriptors_full, verbose)
-        
+            H, scale, theta, t, bbox, best_piece = update_puzzle(frame.copy(), sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
+
         canvas = update_canvas(H, canvas, best_piece)
         
         if bbox is not None:
@@ -49,24 +54,24 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
     cv2.destroyAllWindows()
 
 
-def update_puzzle(frame, sift, bf, target_image, keypoints_full, descriptors_full, verbose):
+def update_puzzle(frame, sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose):
     
     extract_start = time.time()
     pieces = extract_pieces(frame)
     print(f"Extracting pieces took {time.time() - extract_start:.3f} seconds")
     
     find_best_piece_start = time.time()    
-    best_piece, best_piece_keypoints, best_piece_matches, bbox = find_best_piece(pieces, sift, bf, target_image, keypoints_full, descriptors_full, verbose)
+    best_piece, best_piece_keypoints, best_piece_matches, bbox = find_best_piece(pieces, sift, target_image, keypoints_full, descriptors_full, verbose)
     print(f"Finding best piece took {time.time() - find_best_piece_start:.3f} seconds")
     
     transform_start = time.time()
-    H = calculate_transform(best_piece, best_piece_matches, best_piece_keypoints, keypoints_full, target_image, byhand=True, verbose=verbose)
+    H, scale, theta, t = calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full, scale, theta, t)
     print(f"Calculating transform took {time.time() - transform_start:.3f} seconds")
     
-    return H, bbox, best_piece
+    return H, scale, theta, t, bbox, best_piece
 
 
-def find_best_piece(pieces, sift, bf, target_image, keypoints_full, descriptors_full, verbose=False):
+def find_best_piece(pieces, sift, target_image, keypoints_full, descriptors_full, verbose=False):
     best_piece = None
     best_piece_keypoints = None
     best_piece_matches = None
@@ -74,7 +79,7 @@ def find_best_piece(pieces, sift, bf, target_image, keypoints_full, descriptors_
     
     for i, piece in enumerate(pieces):
         match_start = time.time()
-        keypoints_piece, descriptors_piece = calculate_keypoints_sift(sift, piece, target_image)
+        keypoints_piece, descriptors_piece = calculate_keypoints_sift(sift, piece)
         good_matches = calculate_matches(piece, target_image, keypoints_piece, descriptors_piece, keypoints_full, descriptors_full)
         if len(good_matches) > max_matches:
             max_matches = len(good_matches)
