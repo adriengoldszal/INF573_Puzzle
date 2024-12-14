@@ -97,10 +97,6 @@ def find_best_piece(pieces, sift, target_image, keypoints_full, descriptors_full
 
 def update_canvas(H, canvas, piece):
     
-    print("H type:", type(H))
-    print("H shape:", H.shape if isinstance(H, np.ndarray) else "not ndarray")
-    print("H contents:", H)
-    
     H = np.float32(H)
     # Create mask and remove existing content
     # Warp piece and its mask
@@ -132,11 +128,15 @@ def update_canvas(H, canvas, piece):
     
 def create_fullscreen_display(frame, canvas, update_interval, last_update):
 
-    screen = cv2.namedWindow("Real-time Puzzle Assembly", cv2.WINDOW_NORMAL)
-    cv2.setWindowProperty("Real-time Puzzle Assembly", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+    import tkinter as tk
+    root = tk.Tk()
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    root.destroy()
     
-    screen_width = cv2.getWindowImageRect("Real-time Puzzle Assembly")[2]
-    screen_height = cv2.getWindowImageRect("Real-time Puzzle Assembly")[3]
+    # Create window without forcing fullscreen
+    cv2.namedWindow("Real-time Puzzle Assembly", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("Real-time Puzzle Assembly", screen_width, screen_height)
     
     # Calculate aspect ratios
     frame_aspect = frame.shape[1] / frame.shape[0]
