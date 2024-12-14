@@ -1,7 +1,7 @@
 from fonctions_image import *
 
 # Variables
-url = "http://192.168.30.13:8080/video"
+url = "http://192.168.225.205:8080/video"
 puzzle_image_path = "nos_puzzles/yakari.jpg"
 verbose = True
 
