@@ -317,11 +317,14 @@ def calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full
         
         if theta is None or t is None or scale is None:
             
+            print("Unknown scale")
             H = homography_unknown_scale(best_piece_keypoints, keypoints_full, best_piece_matches)
         else :
+            print("Known scale")
             H = homography_known_scale(best_piece_keypoints, keypoints_full, best_piece_matches,scale)
         
         scale, theta, t = decompose_similarity_homography(H)
+        print(f'scale {scale}, theta {theta}, t {t}')
         
         return H, scale, theta, t
             
