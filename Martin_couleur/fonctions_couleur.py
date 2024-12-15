@@ -3,7 +3,9 @@ import os
 sys.path.append('/Users/martindrieux/Documents/GitHub/INF573_Puzzle/solver_adrien')  # Je n'arrive mas un fair un chemin relaitf
 
 from fonctions_image import *  # Importer toutes les fonctions du fichier
-
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
 
 
 def compute_log_polar_histogram(image, bins=30):
@@ -176,3 +178,193 @@ def display_heatmap(matrix, title="Heatmap", cmap="viridis"):
     plt.xlabel("Colonnes")
     plt.ylabel("Lignes")
     plt.show()
+
+##########################
+
+
+def create_descriptor(img, mask=None, square_size=20, crop_to_mask=True):
+    """
+    Create a color-based descriptor for an image with an optional mask.
+
+    Parameters:
+        img (numpy array): BGR image.
+        mask (numpy array, optional): Binary mask of the region of interest (can be None).
+        square_size (int): Size of the square blocks in pixels.
+        crop_to_mask (bool): Whether to crop to the bounding box of the mask.
+
+    Returns:
+        descriptor (list): List of dictionaries with block features.
+    """
+    # Convert the image to LAB color space for better color matching
+    img_lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+
+    if mask is not None and crop_to_mask:
+        # Get bounding box around the mask
+        y_indices, x_indices = np.where(mask > 0)
+        y_min, y_max = np.min(y_indices), np.max(y_indices)
+        x_min, x_max = np.min(x_indices), np.max(x_indices)
+
+        # Crop image and mask to the bounding box
+        img_lab = img_lab[y_min:y_max+1, x_min:x_max+1]
+        mask = mask[y_min:y_max+1, x_min:x_max+1]
+    else:
+        y_min, x_min = 0, 0
+        mask = np.ones(img.shape[:2], dtype=np.uint8) * 255 if mask is None else mask
+
+    # Get the height and width of the image region
+    h, w = img_lab.shape[:2]
+
+    descriptor = []
+
+    # Calculate the number of blocks based on the square size
+    blocks_y = h // square_size
+    blocks_x = w // square_size
+
+    for i in range(blocks_y):
+        for j in range(blocks_x):
+            # Define block coordinates
+            y0, y1 = i * square_size, (i + 1) * square_size
+            x0, x1 = j * square_size, (j + 1) * square_size
+
+            # Ensure the block is within image bounds
+            if y1 > h:
+                y1 = h
+            if x1 > w:
+                x1 = w
+
+            # Extract the patch and corresponding mask
+            patch = img_lab[y0:y1, x0:x1]
+            patch_mask = mask[y0:y1, x0:x1]
+
+            # Only consider patches where the mask is non-zero
+            if np.count_nonzero(patch_mask) == 0:
+                continue
+
+            # Extract valid pixels within the mask
+            valid_pixels = patch[patch_mask > 0]
+
+            # Compute mean color (L, A, B channels)
+            mean_color = np.mean(valid_pixels, axis=0)
+
+            # Append block feature to the descriptor
+            descriptor.append({
+                'mean_color': mean_color,
+                'block_coords': (i, j),
+                'bounding_box': (y0 + y_min, y1 + y_min, x0 + x_min, x1 + x_min)
+            })
+
+    return descriptor
+
+
+def compute_descriptor_distance(desc1, desc2):
+    """
+    Compute the distance between two descriptors by comparing compatible blocks.
+
+    Parameters:
+        desc1 (list): First descriptor.
+        desc2 (list): Second descriptor.
+
+    Returns:
+        float: The total distance between compatible blocks.
+    """
+    distance = 0
+    count = 0
+
+    # Create a set of block coordinates for each descriptor
+    coords1 = set(block['block_coords'] for block in desc1)
+    coords2 = set(block['block_coords'] for block in desc2)
+
+    # Find common coordinates
+    common_coords = coords1.intersection(coords2)
+
+    # Compare mean colors for blocks with common coordinates
+    for block1 in desc1:
+        if block1['block_coords'] in common_coords:
+            for block2 in desc2:
+                if block1['block_coords'] == block2['block_coords']:
+                    dist = np.linalg.norm(block1['mean_color'] - block2['mean_color'])
+                    distance += dist
+                    count += 1
+
+    # Return average distance if there are common blocks
+    return distance / count if count > 0 else float('inf')
+
+
+def search_puzzle_for_piece(puzzle_img, puzzle_mask, piece_img, piece_mask, puzzle_square_size=20, piece_square_size=20, top_n=5):
+    """
+    Search for the top non-overlapping matches for a piece within the puzzle and create a simplified distance map.
+
+    Parameters:
+        puzzle_img (numpy array): BGR image of the whole puzzle.
+        puzzle_mask (numpy array): Binary mask for the puzzle.
+        piece_img (numpy array): BGR image of the puzzle piece.
+        piece_mask (numpy array): Binary mask for the puzzle piece.
+        puzzle_square_size (int): Square size for the puzzle descriptor.
+        piece_square_size (int): Square size for the piece descriptor.
+        top_n (int): Number of top matches to return.
+
+    Returns:
+        tuple: 
+            - List of tuples containing match positions (top-left corners) and their distances.
+            - Distance map (2D numpy array) representing the distance at each valid position.
+    """
+    # Create descriptors for the puzzle and the piece
+    piece_descriptor = create_descriptor(piece_img, piece_mask, piece_square_size, crop_to_mask=True)
+    h_piece = max(block['bounding_box'][1] for block in piece_descriptor) - min(block['bounding_box'][0] for block in piece_descriptor)
+    w_piece = max(block['bounding_box'][3] for block in piece_descriptor) - min(block['bounding_box'][2] for block in piece_descriptor)
+
+    # Calculate the number of positions in the y and x directions
+    y_steps = (puzzle_img.shape[0] - h_piece) // puzzle_square_size + 1
+    x_steps = (puzzle_img.shape[1] - w_piece) // puzzle_square_size + 1
+
+    # Initialize a smaller distance map
+    distance_map = np.full((y_steps, x_steps), np.inf)
+
+    # List to store all matches
+    matches = []
+
+    # Slide the piece over the puzzle
+    for yi in range(y_steps):
+        for xi in range(x_steps):
+            y = yi * puzzle_square_size
+            x = xi * puzzle_square_size
+
+            # Define a sliding window region
+            window = puzzle_img[y:y + h_piece, x:x + w_piece]
+            window_mask = puzzle_mask[y:y + h_piece, x:x + w_piece] if puzzle_mask is not None else None
+
+            # Create a descriptor for the window
+            window_descriptor = create_descriptor(window, window_mask, piece_square_size, crop_to_mask=False)
+
+            # Compute distance between the piece descriptor and the window descriptor
+            distance = compute_descriptor_distance(piece_descriptor, window_descriptor)
+
+            # Update the distance map
+            distance_map[yi, xi] = distance
+
+            # Store the position and distance
+            matches.append(((x, y), distance))
+
+    # Sort matches by distance
+    matches.sort(key=lambda x: x[1])
+
+    # Select the top N non-overlapping matches
+    selected_matches = []
+    for pos, dist in matches:
+        x, y = pos
+        overlap = False
+
+        # Check for overlap with already selected matches
+        for sel_x, sel_y in [match[0] for match in selected_matches]:
+            if (abs(x - sel_x) < w_piece) and (abs(y - sel_y) < h_piece):
+                overlap = True
+                break
+
+        if not overlap:
+            selected_matches.append((pos, dist))
+
+        if len(selected_matches) == top_n:
+            break
+
+    return selected_matches, distance_map
+
