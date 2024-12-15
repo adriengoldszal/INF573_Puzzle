@@ -290,10 +290,6 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
     #La spatial consistency crée un bottleneck majeur
     good_matches = filter_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
 
-    print("Matches and their distances:")
-    for idx, match in enumerate(good_matches):
-        print(f"Match {idx + 1}: Distance = {match.distance:.2f}")
-    
     if verbose :
         # Draw matches
         match_img = cv2.drawMatches(
@@ -322,7 +318,7 @@ def calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full
         else :
             print("Known scale")
             H = homography_known_scale(best_piece_keypoints, keypoints_full, best_piece_matches,scale)
-        
+
         scale, theta, t = decompose_similarity_homography(H)
         print(f'scale {scale}, theta {theta}, t {t}')
         

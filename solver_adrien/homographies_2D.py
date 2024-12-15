@@ -222,5 +222,58 @@ def homography_matrix(s,theta, t):
     H[:2, 2] = t
     return H
 
+def calculate_zncc(region1, region2, blur_kernel_size=3):
+    # Convert to grayscale if in color
+    if len(region1.shape) == 3:
+        region1 = cv2.cvtColor(region1, cv2.COLOR_BGR2GRAY)
+    if len(region2.shape) == 3:
+        region2 = cv2.cvtColor(region2, cv2.COLOR_BGR2GRAY)
+        
+    #region1 = cv2.GaussianBlur(region1, (blur_kernel_size, blur_kernel_size), 0)
+    #region2 = cv2.GaussianBlur(region2, (blur_kernel_size, blur_kernel_size), 0)
+    
+    # Flatten if needed
+    if len(region1.shape) > 1:
+        region1 = region1.flatten()
+    if len(region2.shape) > 1:
+        region2 = region2.flatten()
+    
 
+    # Calculate means
+    mean1 = np.mean(region1)
+    mean2 = np.mean(region2)
+    
+    # Calculate zero-mean
+    zm1 = region1 - mean1
+    zm2 = region2 - mean2
+    
+    # Calculate ZNCC
+    numerator = np.sum(zm1 * zm2)
+    denominator = np.sqrt(np.sum(zm1**2) * np.sum(zm2**2))
+    
+    zncc = numerator / denominator if denominator != 0 else 0
+    return zncc
+
+def show_transform_zncc(piece, puzzle, H):
+    height, width, _ = puzzle.shape
+    
+    # Warp both the piece image and its mask
+    warped_piece = cv2.warpPerspective(piece['image'], H, (width, height))
+    warped_mask = cv2.warpPerspective(piece['binary_mask'], H, (width, height))
+
+    # Convert warped mask to boolean
+    warped_mask = warped_mask > 0
+
+    # Extract only the overlapping regions using the warped mask
+    warped_region = warped_piece[warped_mask]
+    puzzle_region = puzzle[warped_mask]
+
+    # Calculate ZNCC on the masked regions
+    zncc_value = calculate_zncc(warped_region, puzzle_region)
+    print(f"ZNCC value: {zncc_value}")
+
+    # Visualize the overlap
+    result = cv2.addWeighted(puzzle, 0.5, warped_piece, 0.5, 0)
+    plt.imshow(result)
+    plt.show()
 

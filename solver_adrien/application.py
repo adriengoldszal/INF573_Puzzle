@@ -34,7 +34,7 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             # Extract pieces and process them
             H, scale, theta, t, bbox, best_piece = update_puzzle(frame.copy(), sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
 
-            show_homography_on_puzzle(best_piece['matching_image'], target_image, H)
+            show_transform_zncc(best_piece, target_image, H)
             
         canvas = update_canvas(H, canvas, best_piece)
         
