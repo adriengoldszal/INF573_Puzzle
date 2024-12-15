@@ -1,7 +1,7 @@
 # Automatic Puzzle Solver
 This project, part of Ecole Polytechnique's Image Analysis and Computer Vision class, is an automatic puzzle solver. Knowing the completed puzzle image, it helps the user completing the puzzle by showing him where to place the pieces live on screen. 
 
-![Alt text](puzzle_solver.png)
+![Alt text](media/puzzle_solver.png)
 *Puzzle solver on a 54 large piece puzzle*
 
 ## Setup & Installation

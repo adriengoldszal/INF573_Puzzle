@@ -1,4 +1,3 @@
-print('starting imports')
 import cv2
 import time
 import numpy as np
@@ -10,7 +9,7 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
     cap = start_camera(url)
     target_image, sift, keypoints_full, descriptors_full = load_puzzle(puzzle_image_path)
     last_update = 0
-    canvas = np.zeros_like(target_image)  # Initialize canvas
+    canvas = np.zeros_like(target_image)  
     cumulative_mask = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
     bbox = None
     
@@ -54,7 +53,6 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
     
-    # Release resources
     cap.release()
     cv2.destroyAllWindows()
 
@@ -89,18 +87,16 @@ def update_puzzle(frame, cumulative_mask, sift, target_image, keypoints_full, de
 
 
 def find_best_pieces_sorted(pieces, sift, target_image, cumulative_mask, keypoints_full, descriptors_full, verbose=False):
-    # List to store tuples of (piece, keypoints, matches, num_matches)
     piece_matches = []
     
     for i, piece in enumerate(pieces):
         match_start = time.time()
         keypoints_piece, descriptors_piece = calculate_keypoints_sift(sift, piece)
         good_matches = calculate_matches(piece, target_image, keypoints_piece, 
-                                      descriptors_piece, keypoints_full, descriptors_full, cumulative_mask)
+                                      descriptors_piece, keypoints_full, descriptors_full)
         
         if len(good_matches) > 1:
         
-            # Store all information for each piece
             piece_matches.append({
                 'piece': piece,
                 'keypoints': keypoints_piece,
@@ -132,23 +128,19 @@ def find_first_piece_above_threshold(sorted_pieces, target_image, keypoints_full
         temp_H, _, _, _ = calculate_transform(piece_matches, piece_keypoints, 
                                                keypoints_full, scale, theta, t)
         
-        # Warp piece and calculate ZNCC
         height, width, _ = target_image.shape
         warped_piece = cv2.warpPerspective(piece['image'], temp_H, (width, height))
         warped_mask = cv2.warpPerspective(piece['binary_mask'], temp_H, (width, height))
         
-        # Convert warped mask to boolean
         warped_mask = warped_mask > 0
         
-        # Extract overlapping regions
         warped_region = warped_piece[warped_mask]
         puzzle_region = target_image[warped_mask]
         
-        # Calculate ZNCC
         zncc_value = calculate_zncc(warped_region, puzzle_region)
         print(f"ZNCC value: {zncc_value}")
         
-        # Store result for first piece (most matches)
+        # Store result for first piece
         if best_result is None:
             best_result = {
                 'piece': piece,
@@ -179,8 +171,7 @@ def find_first_piece_above_threshold(sorted_pieces, target_image, keypoints_full
 def update_canvas(H, canvas, piece, cumulative_mask):
     
     H = np.float32(H)
-    # Create mask and remove existing content
-    # Warp piece and its mask
+
     warped_piece = cv2.warpPerspective(piece['image'], H, 
                                     (canvas.shape[1], canvas.shape[0]))
     warped_mask = cv2.warpPerspective(piece['binary_mask'], H, 
@@ -189,13 +180,10 @@ def update_canvas(H, canvas, piece, cumulative_mask):
     
     cumulative_mask = cv2.bitwise_or(cumulative_mask, warped_mask)
 
-    # Convert mask to 3 channels for masking colored image
     warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
     
-    # Create inverse mask for the canvas
     canvas_mask = cv2.bitwise_not(warped_mask_3d)
     
-    # Combine the existing canvas with the new piece
     canvas_masked = cv2.bitwise_and(canvas, canvas_mask)
     piece_masked = cv2.bitwise_and(warped_piece, warped_mask_3d)
     canvas = cv2.add(canvas_masked, piece_masked)
@@ -211,45 +199,31 @@ def update_canvas(H, canvas, piece, cumulative_mask):
     
 def create_fullscreen_display(frame, canvas, update_interval, last_update, piece_found):
 
-    # import tkinter as tk
-    # root = tk.Tk()
-    # screen_width = root.winfo_screenwidth()
-    # screen_height = root.winfo_screenheight()
-    # root.destroy()
     screen_width, screen_height = 1920, 1080
     
-    # Create window without forcing fullscreen
     cv2.namedWindow("Real-time Puzzle Assembly", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("Real-time Puzzle Assembly", screen_width, screen_height)
     
-    # Calculate aspect ratios
     frame_aspect = frame.shape[1] / frame.shape[0]
     canvas_aspect = canvas.shape[1] / canvas.shape[0]
     
-    # Target height will be half of screen height to accommodate both images
     target_height = screen_height // 2
     
-    # Calculate widths based on aspect ratio
     frame_width = int(target_height * frame_aspect)
     canvas_width = int(target_height * canvas_aspect)
-    
-    # Resize images while maintaining aspect ratio
+
     frame_resized = cv2.resize(frame, (frame_width, target_height))
     canvas_resized = cv2.resize(canvas, (canvas_width, target_height))
     
-    # Create a white background image of screen size
     background = np.full((screen_height, screen_width, 3), 255, dtype=np.uint8)
     
-    # Calculate positions to center the images
     frame_x = (screen_width - (frame_width + canvas_width)) // 3
     canvas_x = frame_x * 2 + frame_width
     y_offset = (screen_height - target_height) // 2
     
-    # Place images on white background
     background[y_offset:y_offset+target_height, frame_x:frame_x+frame_width] = frame_resized
     background[y_offset:y_offset+target_height, canvas_x:canvas_x+canvas_width] = canvas_resized
     
-    # Add the countdown text
     current_time = time.time()
     remaining_time = max(0, update_interval - (current_time - last_update))
     if piece_found:

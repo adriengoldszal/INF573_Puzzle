@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from homographies_2D import *
 import numpy as np
 from scipy.spatial.distance import cdist
-import time
 from homographies_2D import *
 
 def start_camera(url):
@@ -40,31 +39,28 @@ def load_puzzle(image_path):
     return image, sift, keypoints, descriptors
 
 def extract_pieces(frame, verbose=False):
-        """Extract multiple puzzle pieces from the camera frame."""
+        """Extract all the puzzle pieces from the camera frame."""
         # Convert to grayscale
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
             
         # Apply Gaussian blur to reduce noise
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
         
-        # Apply adaptive thresholding
+        # Apply adaptive thresholding for edge detection
         binary = cv2.adaptiveThreshold(
             blurred,
             255,
             cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
             cv2.THRESH_BINARY_INV,
-            blockSize=11,  # Must be odd number
-            C=2  # Constant subtracted from mean
+            blockSize=11, 
+            C=2  
         )
         
 
-        # Morphological operations with smaller kernel
         kernel_small = np.ones((3, 3), np.uint8)
         kernel_medium = np.ones((8, 8), np.uint8)
-        #kernel_large = np.ones((15, 15), np.uint8)
         
-        # Close small holes first
-        #morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_large)
+        # Closing holes
         morph = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_medium)
         morph = cv2.morphologyEx(morph, cv2.MORPH_CLOSE, kernel_small)
         
@@ -72,10 +68,9 @@ def extract_pieces(frame, verbose=False):
         mask = np.zeros_like(morph)
         
         for contour in contours:
-            # Fill each contour
             cv2.drawContours(mask, [contour], -1, 255, -1)
         
-        # Now mask has filled pieces without holes
+        # Fill contours
         morph = mask
         
         if verbose :
@@ -92,36 +87,29 @@ def extract_pieces(frame, verbose=False):
         num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(morph, connectivity=8)
         pieces = []
         
-        # Calculate minimum area threshold based on image size
-        min_area = frame.shape[0] * frame.shape[1] * 0.005 # 2% of image area
+        # Get rid of noise
+        min_area = frame.shape[0] * frame.shape[1] * 0.005
         
-        # Skip label 0 as it's background
         for i in range(1, num_labels):
             x, y, w, h, area = stats[i]
             
-            # Filter out components that are too small or too large
             if area < min_area :
                 continue
             
-            # Get the mask for this specific piece
             piece_mask = (labels == i).astype(np.uint8)
             
-            # Extract the piece with dynamic padding based on piece size
-            padding = min(20, min(w, h) // 4)  # Dynamic padding
+            padding = min(20, min(w, h) // 4)  
             x_start = max(0, x - padding)
             y_start = max(0, y - padding)
             x_end = min(frame.shape[1], x + w + padding)
             y_end = min(frame.shape[0], y + h + padding)
             
-            # Extract the piece region
             piece_img = frame[y_start:y_end, x_start:x_end].copy()
             piece_mask = piece_mask[y_start:y_end, x_start:x_end]
             
-            # Ensure mask has enough content
-            if np.sum(piece_mask) < area * 0.5:  # At least 50% of original area
+            if np.sum(piece_mask) < area * 0.5: 
                 continue
             
-            # Create white background version for feature matching
             white_bg = np.full_like(piece_img, 255)
             piece_mask_3d = np.stack([piece_mask] * 3, axis=-1)
             piece_on_white = np.where(piece_mask_3d == 1, piece_img, white_bg)
@@ -144,23 +132,21 @@ def extract_pieces(frame, verbose=False):
 def show_found_pieces(pieces) :
     n_pieces = len(pieces)
     if n_pieces > 0:
-        rows = (n_pieces + 1) // 2  # 2 pieces per row
+        rows = (n_pieces + 1) // 2 
         plt.figure(figsize=(15, 5*rows))
         
         for i, piece in enumerate(pieces):
-            # Original image
+
             plt.subplot(rows, 4, i*2 + 1)
             plt.imshow(cv2.cvtColor(piece['image'], cv2.COLOR_BGR2RGB))
             plt.title(f"Piece {i}")
             plt.axis('off')
             
-            # White background version
             plt.subplot(rows, 4, i*2 + 2)
             plt.imshow(cv2.cvtColor(piece['matching_image'], cv2.COLOR_BGR2RGB))
             plt.title(f"Piece {i} (Matching image used for SIFT)")
             plt.axis('off')
             
-            # Print piece information
             print(f"\nPiece {i}:")
             print(f"Position: {piece['position']}")
             print(f"Size: {piece['size']}")
@@ -192,13 +178,10 @@ def filter_spatially_consistent_matches(good_matches, keypoints_full, piece_size
     if len(good_matches) == 0:
         return []
     
-    # Get points in the full image for all matches
     dst_pts = np.float32([keypoints_full[m.trainIdx].pt for m in good_matches])
     
-    # Calculate pairwise distances between all points
     distances = cdist(dst_pts, dst_pts)
     
-    # Initialize with the point that has the most neighbors within threshold
     valid_neighbors = (distances < max_allowed_distance).sum(axis=1)
     best_start = np.argmax(valid_neighbors)
     
@@ -206,14 +189,13 @@ def filter_spatially_consistent_matches(good_matches, keypoints_full, piece_size
     candidates = set(range(len(dst_pts))) - {best_start}
     
     while candidates:
-        # Find the point that's consistent with all current points
+
         best_score = -1
         best_idx = None
         
         for idx in candidates:
-            # Check if this point is within threshold of all current points
             if np.all(distances[idx, list(consistent_indices)] < max_allowed_distance):
-                # Score is number of additional valid neighbors it would add
+                
                 potential_neighbors = set(np.where(distances[idx] < max_allowed_distance)[0])
                 score = len(potential_neighbors & candidates)
                 if score > best_score:
@@ -276,22 +258,22 @@ def calculate_keypoints_sift(sift, piece, verbose=False):
     return keypoints_filtered, descriptors_filtered
 
 
-def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, cumulative_mask, verbose=False):
+def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, verbose=False):
     
     bf = cv2.BFMatcher()
     matches = bf.knnMatch(descriptors, descriptors_full, k=2)
 
     good_matches = []
     for m, n in matches:
-        if m.distance < 1*n.distance:  # Lowe's ratio test (pas sûr de le garder car features peuvent être proches)
+        if m.distance < 1*n.distance: 
             good_matches.append(m)
 
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:50]
-    #La spatial consistency crée un bottleneck majeur
+
     good_matches = filter_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
 
     if verbose :
-        # Draw matches
+        
         match_img = cv2.drawMatches(
             piece['matching_image'], keypoints,
             puzzle, keypoints_full,
@@ -299,7 +281,7 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
             matchesThickness=3,
             matchColor=(0, 255, 0),
         )
-        # Display matches 
+
         print(f"Found {len(good_matches)} good matches")
         plt.imshow(cv2.cvtColor(match_img, cv2.COLOR_BGR2RGB))
         plt.show()
@@ -309,8 +291,6 @@ def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, des
 
 def calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full, scale, theta, t) :
     
-        #H = cv2.findHomography(cv2.RANSAC, np.array([best_piece_keypoints[m.queryIdx].pt for m in best_piece_matches]), np.array([keypoints_full[m.trainIdx].pt for m in best_piece_matches]))[0]
-        
         if theta is None or t is None or scale is None:
             
             print("Unknown scale")
