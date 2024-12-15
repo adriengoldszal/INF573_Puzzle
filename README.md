@@ -1,17 +1,18 @@
-# INF573 : Puzzle Solver
-Aide à la résolution de puzzle en direct à l'aide d'une caméra
-## TODO 
-TODO : Ameliorer la feature detection peut être avec de la detection de couleurs ou de la computer vision  
-TODO : Ameliorer le programme lui même, mémoire des pièces, pour avancement progressif
+# Automatic Puzzle Solver
+This project, part of Ecole Polytechnique's Image Analysis and Computer Vision class, is an automatic puzzle solver. Knowing the completed puzzle image, it helps the user completing the puzzle by showing him where to place the pieces live on screen. 
 
-## Installation
+![Alt text](puzzle_solver.png)
+*Puzzle solver on a 54 large piece puzzle*
 
-Telecharger l'application IP Webcam pour utiliser la camera de son téléphone sur son ordinateu à une url particulière.
-Pour que cela fonctionne, il faut ensuite être sur la même Wi-Fi (du moins à l'X). Il peut y avoir des problèmes avec eduroam donc je conseille le partage de connexion pour s'assurer que cela fonctionne.
+## Setup & Installation
+
+Download the **IP Webcam** App on your phone, and use your phone as a camera to film your puzzle pieces (ideally on a white background). Use the IP Webcam url to connect with the computer.  
+
+As a disclaimer, if you are using eduroam, we highly recommend doing a connexion sharing between your phone and your computer, as the wi-fi can cause connection problems. 
 
 ## How to run
-1) Mettre son téléphone en position pour voir les pièces de puzzle
+1) Put your phone on a flat surface to be able to film the puzzle pieces
   
-2) Aller dans `solver_adrien` :
-- On peut run `run_test_application` pour faire un test en live
-- Sinon, `run_test_unique` pour voir ce qu'il se passe avec une image
+2) In `src` :
+- Run `run_test_application` for a live test of the puzzle solving
+- Or run `run_test_unique` for a detailed analysis on one frame
