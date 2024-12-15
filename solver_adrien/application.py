@@ -172,8 +172,8 @@ def find_first_piece_above_threshold(sorted_pieces, target_image, keypoints_full
                 'zncc': zncc_value
             }
     
-    print("No pieces found above ZNCC threshold, returning piece with most matches")
-    return best_result
+    print("No pieces found above ZNCC threshold")
+    return None
 
 def update_canvas(H, canvas, piece, cumulative_mask):
     
