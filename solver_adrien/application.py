@@ -128,11 +128,12 @@ def update_canvas(H, canvas, piece):
     
 def create_fullscreen_display(frame, canvas, update_interval, last_update):
 
-    import tkinter as tk
-    root = tk.Tk()
-    screen_width = root.winfo_screenwidth()
-    screen_height = root.winfo_screenheight()
-    root.destroy()
+    # import tkinter as tk
+    # root = tk.Tk()
+    # screen_width = root.winfo_screenwidth()
+    # screen_height = root.winfo_screenheight()
+    # root.destroy()
+    screen_width, screen_height = 1920, 1080
     
     # Create window without forcing fullscreen
     cv2.namedWindow("Real-time Puzzle Assembly", cv2.WINDOW_NORMAL)
