@@ -34,18 +34,17 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             
             # Extract pieces and process them
             print(f'Updating puzzle with current scale {scale}, theta {theta}, t {t}')
-            H, scale, theta, t, bbox, best_piece = update_puzzle(frame.copy(), cumulative_mask, sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
+            H, scale, theta, t, bbox, best_piece, piece_found = update_puzzle(frame.copy(), cumulative_mask, sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
 
-            
-            
-        canvas, cumulative_mask = update_canvas(H, canvas, best_piece, cumulative_mask)
+        if piece_found:
+            canvas, cumulative_mask = update_canvas(H, canvas, best_piece, cumulative_mask)
         
         if bbox is not None:
            x, y, w, h = bbox
            # Draw the rectangle on the frame
            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
             
-        combined_view = create_fullscreen_display(frame, canvas, update_interval, last_update)
+        combined_view = create_fullscreen_display(frame, canvas, update_interval, last_update, piece_found)
         
         # Display the combined view
         cv2.imshow("Real-time Puzzle Assembly", combined_view)
@@ -74,13 +73,18 @@ def update_puzzle(frame, cumulative_mask, sift, target_image, keypoints_full, de
     result = find_first_piece_above_threshold(sorted_pieces, target_image, keypoints_full, scale, theta, t)
     print(f"Calculating transform took {time.time() - transform_start:.3f} seconds")
     
-    best_piece = result['piece']
-    bbox = result['bbox']
-    H = result['transform']
-    scale, theta, t = decompose_similarity_homography(H)
-    show_transform_zncc(best_piece, target_image, H)
+    if result :
+        best_piece = result['piece']
+        bbox = result['bbox']
+        H = result['transform']
+        scale, theta, t = decompose_similarity_homography(H)
+        show_transform_zncc(best_piece, target_image, H)
+        piece_found = True
+        return H, scale, theta, t, bbox, best_piece, piece_found
     
-    return H, scale, theta, t, bbox, best_piece
+    piece_found = False
+    return None, scale, theta, t, None, None, piece_found
+    
 
 
 def find_best_pieces_sorted(pieces, sift, target_image, cumulative_mask, keypoints_full, descriptors_full, verbose=False):
@@ -204,7 +208,7 @@ def update_canvas(H, canvas, piece, cumulative_mask):
     return canvas_with_frame, cumulative_mask
     
     
-def create_fullscreen_display(frame, canvas, update_interval, last_update):
+def create_fullscreen_display(frame, canvas, update_interval, last_update, piece_found):
 
     # import tkinter as tk
     # root = tk.Tk()
@@ -247,7 +251,10 @@ def create_fullscreen_display(frame, canvas, update_interval, last_update):
     # Add the countdown text
     current_time = time.time()
     remaining_time = max(0, update_interval - (current_time - last_update))
-    text = f"Next match in {remaining_time:.1f} secs..."
+    if piece_found:
+        text = f"Piece found! Updating puzzle in {remaining_time:.1f} secs..."
+    else :
+        text = f"No piece found, retrying in {remaining_time:.1f} secs..."
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 1.0
     color = (0, 255, 0)
