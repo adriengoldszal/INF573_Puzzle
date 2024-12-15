@@ -10,6 +10,7 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
     target_image, sift, keypoints_full, descriptors_full = load_puzzle(puzzle_image_path)
     last_update = 0
     canvas = np.zeros_like(target_image)  # Initialize canvas
+    cumulative_mask = np.zeros((canvas.shape[0], canvas.shape[1]), dtype=np.uint8)
     bbox = None
     
     # Initialize variables for homography calculation
@@ -33,11 +34,11 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             
             # Extract pieces and process them
             print(f'Updating puzzle with current scale {scale}, theta {theta}, t {t}')
-            H, scale, theta, t, bbox, best_piece = update_puzzle(frame.copy(), sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
+            H, scale, theta, t, bbox, best_piece = update_puzzle(frame.copy(), cumulative_mask, sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
 
             
             
-        canvas = update_canvas(H, canvas, best_piece)
+        canvas, cumulative_mask = update_canvas(H, canvas, best_piece, cumulative_mask)
         
         if bbox is not None:
            x, y, w, h = bbox
@@ -58,14 +59,14 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
     cv2.destroyAllWindows()
 
 
-def update_puzzle(frame, sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose):
+def update_puzzle(frame, cumulative_mask, sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose):
     
     extract_start = time.time()
     pieces = extract_pieces(frame)
     print(f"Extracting pieces took {time.time() - extract_start:.3f} seconds")
     
     find_best_piece_start = time.time()    
-    sorted_pieces = find_best_pieces_sorted(pieces, sift, target_image, keypoints_full, descriptors_full, verbose)
+    sorted_pieces = find_best_pieces_sorted(pieces, sift, target_image,cumulative_mask, keypoints_full, descriptors_full, verbose)
     print(f"Matching and sorting pieces took {time.time() - find_best_piece_start:.3f} seconds")
     
     transform_start = time.time()
@@ -82,7 +83,7 @@ def update_puzzle(frame, sift, target_image, keypoints_full, descriptors_full, s
     return H, scale, theta, t, bbox, best_piece
 
 
-def find_best_pieces_sorted(pieces, sift, target_image, keypoints_full, descriptors_full, verbose=False):
+def find_best_pieces_sorted(pieces, sift, target_image, cumulative_mask, keypoints_full, descriptors_full, verbose=False):
     # List to store tuples of (piece, keypoints, matches, num_matches)
     piece_matches = []
     
@@ -90,7 +91,7 @@ def find_best_pieces_sorted(pieces, sift, target_image, keypoints_full, descript
         match_start = time.time()
         keypoints_piece, descriptors_piece = calculate_keypoints_sift(sift, piece)
         good_matches = calculate_matches(piece, target_image, keypoints_piece, 
-                                      descriptors_piece, keypoints_full, descriptors_full)
+                                      descriptors_piece, keypoints_full, descriptors_full, cumulative_mask)
         
         if len(good_matches) > 1:
         
@@ -170,7 +171,7 @@ def find_first_piece_above_threshold(sorted_pieces, target_image, keypoints_full
     print("No pieces found above ZNCC threshold, returning piece with most matches")
     return best_result
 
-def update_canvas(H, canvas, piece):
+def update_canvas(H, canvas, piece, cumulative_mask):
     
     H = np.float32(H)
     # Create mask and remove existing content
@@ -181,6 +182,8 @@ def update_canvas(H, canvas, piece):
                                     (canvas.shape[1], canvas.shape[0]))
     warped_mask = (warped_mask * 255).astype(np.uint8)
     
+    cumulative_mask = cv2.bitwise_or(cumulative_mask, warped_mask)
+
     # Convert mask to 3 channels for masking colored image
     warped_mask_3d = cv2.cvtColor(warped_mask, cv2.COLOR_GRAY2BGR)
     
@@ -198,7 +201,7 @@ def update_canvas(H, canvas, piece):
                                     (canvas.shape[1]-1, canvas.shape[0]-1), 
                                     (0, 255, 0), 5)
     
-    return canvas_with_frame
+    return canvas_with_frame, cumulative_mask
     
     
 def create_fullscreen_display(frame, canvas, update_interval, last_update):

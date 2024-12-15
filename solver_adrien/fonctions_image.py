@@ -276,19 +276,40 @@ def calculate_keypoints_sift(sift, piece, verbose=False):
     return keypoints_filtered, descriptors_filtered
 
 
-def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, verbose=False):
+def calculate_matches(piece, puzzle, keypoints, descriptors, keypoints_full, descriptors_full, cumulative_mask, verbose=False):
+    
+    valid_keypoints = []
+    valid_descriptors = []
+    valid_indices = []
+    
+    for idx, kp in enumerate(keypoints_full):
+        x, y = int(kp.pt[0]), int(kp.pt[1])
+        
+        if cumulative_mask[y, x] == 0:  
+            valid_keypoints.append(kp)
+            valid_descriptors.append(descriptors_full[idx])
+            valid_indices.append(idx)
+    
+    valid_descriptors = np.array(valid_descriptors)
+    
+    vis_img = cv2.drawKeypoints(puzzle, valid_keypoints, None,
+                               color=(0, 255, 0),  # BGR format - Green
+                               flags=cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
+    plt.imshow(cv2.cvtColor(vis_img, cv2.COLOR_BGR2RGB))
+    plt.show()
+    
     
     bf = cv2.BFMatcher()
-    matches = bf.knnMatch(descriptors, descriptors_full, k=2)
+    matches = bf.knnMatch(descriptors, valid_descriptors, k=2)
 
     good_matches = []
     for m, n in matches:
-        if m.distance < 1*n.distance:  # Lowe's ratio test (pas sûr de le garder car features peuvent être proches)
+        if m.distance < 1*n.distance: 
             good_matches.append(m)
 
     good_matches = sorted(good_matches, key=lambda x: x.distance)[:50]
     #La spatial consistency crée un bottleneck majeur
-    good_matches = filter_spatially_consistent_matches(good_matches, keypoints_full, piece['size'])
+    good_matches = filter_spatially_consistent_matches(good_matches, valid_keypoints, piece['size'])
 
     if verbose :
         # Draw matches
