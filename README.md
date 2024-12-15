@@ -13,6 +13,4 @@ As a disclaimer, if you are using eduroam, we highly recommend doing a connexion
 ## How to run
 1) Put your phone on a flat surface to be able to film the puzzle pieces
   
-2) In `src` :
-- Run `run_test_application` for a live test of the puzzle solving
-- Or run `run_test_unique` for a detailed analysis on one frame
+2) In `src`, run `run_test_application` for a live test of the puzzle solving
