@@ -1,8 +1,9 @@
 from fonctions_image import *
 
 # Variables
-url = "http://192.168.225.205:8080/video"
-puzzle_image_path = "nos_puzzles/yakari.jpg"
+#url = "http://192.168.225.205:8080/video"
+url = "http://10.220.14.33:8080/video"
+puzzle_image_path = "nos_puzzles/chateau.jpg"
 verbose = True
 
 #Transform :
@@ -28,4 +29,4 @@ for piece in pieces:
     
     if len(good_matches) > 4 :
         H, scale, theta, t = calculate_transform(good_matches, keypoints_piece, keypoints_full,scale, theta, t)
-        show_homography_on_puzzle(piece['matching_image'], target_image, H)
+        show_transform_zncc(piece, target_image, H)

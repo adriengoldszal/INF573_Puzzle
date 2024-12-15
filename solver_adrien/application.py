@@ -32,9 +32,10 @@ def run_realtime_view(url, puzzle_image_path, update_interval, verbose):
             last_update = current_time
             
             # Extract pieces and process them
+            print(f'Updating puzzle with current scale {scale}, theta {theta}, t {t}')
             H, scale, theta, t, bbox, best_piece = update_puzzle(frame.copy(), sift, target_image, keypoints_full, descriptors_full, scale, theta, t, verbose)
 
-            show_transform_zncc(best_piece, target_image, H)
+            
             
         canvas = update_canvas(H, canvas, best_piece)
         
@@ -64,36 +65,110 @@ def update_puzzle(frame, sift, target_image, keypoints_full, descriptors_full, s
     print(f"Extracting pieces took {time.time() - extract_start:.3f} seconds")
     
     find_best_piece_start = time.time()    
-    best_piece, best_piece_keypoints, best_piece_matches, bbox = find_best_piece(pieces, sift, target_image, keypoints_full, descriptors_full, verbose)
-    print(f"Finding best piece took {time.time() - find_best_piece_start:.3f} seconds")
+    sorted_pieces = find_best_pieces_sorted(pieces, sift, target_image, keypoints_full, descriptors_full, verbose)
+    print(f"Matching and sorting pieces took {time.time() - find_best_piece_start:.3f} seconds")
     
     transform_start = time.time()
-    H, scale, theta, t = calculate_transform(best_piece_matches, best_piece_keypoints, keypoints_full, scale, theta, t)
+    print(f"Finding piece above threshold with scale {scale}, theta {theta}, t {t}")
+    result = find_first_piece_above_threshold(sorted_pieces, target_image, keypoints_full, scale, theta, t)
     print(f"Calculating transform took {time.time() - transform_start:.3f} seconds")
+    
+    best_piece = result['piece']
+    bbox = result['bbox']
+    H = result['transform']
+    scale, theta, t = decompose_similarity_homography(H)
+    show_transform_zncc(best_piece, target_image, H)
     
     return H, scale, theta, t, bbox, best_piece
 
 
-def find_best_piece(pieces, sift, target_image, keypoints_full, descriptors_full, verbose=False):
-    best_piece = None
-    best_piece_keypoints = None
-    best_piece_matches = None
-    max_matches = 0
+def find_best_pieces_sorted(pieces, sift, target_image, keypoints_full, descriptors_full, verbose=False):
+    # List to store tuples of (piece, keypoints, matches, num_matches)
+    piece_matches = []
     
     for i, piece in enumerate(pieces):
         match_start = time.time()
         keypoints_piece, descriptors_piece = calculate_keypoints_sift(sift, piece)
-        good_matches = calculate_matches(piece, target_image, keypoints_piece, descriptors_piece, keypoints_full, descriptors_full)
-        if len(good_matches) > max_matches:
-            max_matches = len(good_matches)
-            best_piece = piece
-            best_piece_keypoints = keypoints_piece
-            best_piece_matches = good_matches
-        print(f"Piece {i+1} matching took {time.time() - match_start:.3f} seconds ({len(good_matches)} matches)")
-
-    bbox = best_piece['position'] + best_piece['size']
+        good_matches = calculate_matches(piece, target_image, keypoints_piece, 
+                                      descriptors_piece, keypoints_full, descriptors_full)
+        
+        if len(good_matches) > 1:
+        
+            # Store all information for each piece
+            piece_matches.append({
+                'piece': piece,
+                'keypoints': keypoints_piece,
+                'matches': good_matches,
+                'num_matches': len(good_matches)
+            })
+        
+            if verbose:
+                print(f"Piece {i}: {len(good_matches)} matches, "
+                    f"time: {time.time() - match_start:.2f}s")
     
-    return best_piece, best_piece_keypoints, best_piece_matches, bbox
+    # Sort pieces by number of matches in descending order
+    sorted_pieces = sorted(piece_matches, 
+                         key=lambda x: x['num_matches'], 
+                         reverse=True)
+    
+    return sorted_pieces
+
+def find_first_piece_above_threshold(sorted_pieces, target_image, keypoints_full, scale, theta, t, zncc_threshold=0.55):
+    transform_start = time.time()
+    best_zncc = float('-inf')
+    best_result = None
+    
+    for piece_info in sorted_pieces:
+        piece = piece_info['piece']
+        piece_keypoints = piece_info['keypoints']
+        piece_matches = piece_info['matches']
+        
+        temp_H, _, _, _ = calculate_transform(piece_matches, piece_keypoints, 
+                                               keypoints_full, scale, theta, t)
+        
+        # Warp piece and calculate ZNCC
+        height, width, _ = target_image.shape
+        warped_piece = cv2.warpPerspective(piece['image'], temp_H, (width, height))
+        warped_mask = cv2.warpPerspective(piece['binary_mask'], temp_H, (width, height))
+        
+        # Convert warped mask to boolean
+        warped_mask = warped_mask > 0
+        
+        # Extract overlapping regions
+        warped_region = warped_piece[warped_mask]
+        puzzle_region = target_image[warped_mask]
+        
+        # Calculate ZNCC
+        zncc_value = calculate_zncc(warped_region, puzzle_region)
+        print(f"ZNCC value: {zncc_value}")
+        
+        # Store result for first piece (most matches)
+        if best_result is None:
+            best_result = {
+                'piece': piece,
+                'keypoints': piece_keypoints,
+                'matches': piece_matches,
+                'bbox': piece['position'] + piece['size'],
+                'transform': temp_H,
+                'zncc': zncc_value
+            }
+        
+        # If ZNCC is above threshold, return this piece
+        if zncc_value > zncc_threshold:
+            print(f"Found piece above threshold. ZNCC: {zncc_value}")
+            print(f"Total transform calculation time: {time.time() - transform_start:.3f} seconds")
+            
+            return {
+                'piece': piece,
+                'keypoints': piece_keypoints,
+                'matches': piece_matches,
+                'bbox': piece['position'] + piece['size'],
+                'transform': temp_H,
+                'zncc': zncc_value
+            }
+    
+    print("No pieces found above ZNCC threshold, returning piece with most matches")
+    return best_result
 
 def update_canvas(H, canvas, piece):
     
